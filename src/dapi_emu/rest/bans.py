@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from .. import audit
 from ..auth import require_bot
 from ..state import WORLD, User
 
@@ -61,7 +62,7 @@ async def get_ban(guild_id: str, user_id: str, _bot: User = Depends(require_bot)
 
 
 @router.put("/guilds/{guild_id}/bans/{user_id}", status_code=204)
-async def create_ban(guild_id: str, user_id: str, body: dict | None = None, _bot: User = Depends(require_bot)):
+async def create_ban(guild_id: str, user_id: str, body: dict | None = None, bot: User = Depends(require_bot)):
     _require_guild(guild_id)
     body = body or {}
     reason = body.get("reason")
@@ -76,10 +77,11 @@ async def create_ban(guild_id: str, user_id: str, body: dict | None = None, _bot
 
     WORLD.bus.publish("GUILD_BAN_ADD", {"guild_id": guild_id, "user": user_payload})
     WORLD.bus.publish("GUILD_MEMBER_REMOVE", {"guild_id": guild_id, "user": user_payload})
+    audit.log(guild_id, bot.id, user_id, 22, reason=reason)  # MEMBER_BAN_ADD
 
 
 @router.delete("/guilds/{guild_id}/bans/{user_id}", status_code=204)
-async def remove_ban(guild_id: str, user_id: str, _bot: User = Depends(require_bot)):
+async def remove_ban(guild_id: str, user_id: str, bot: User = Depends(require_bot)):
     _require_guild(guild_id)
     ban = WORLD.bans.pop((guild_id, user_id), None)
     if not ban:
@@ -89,10 +91,11 @@ async def remove_ban(guild_id: str, user_id: str, _bot: User = Depends(require_b
         "guild_id": guild_id,
         "user": user.to_dict() if user else {"id": user_id},
     })
+    audit.log(guild_id, bot.id, user_id, 23)  # MEMBER_BAN_REMOVE
 
 
 @router.post("/guilds/{guild_id}/bulk-ban")
-async def bulk_ban(guild_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def bulk_ban(guild_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     _require_guild(guild_id)
     user_ids = body.get("user_ids") or []
     if not isinstance(user_ids, list):
@@ -114,5 +117,6 @@ async def bulk_ban(guild_id: str, body: dict, _bot: User = Depends(require_bot))
         user_payload = WORLD.users[uid].to_dict()
         WORLD.bus.publish("GUILD_BAN_ADD", {"guild_id": guild_id, "user": user_payload})
         WORLD.bus.publish("GUILD_MEMBER_REMOVE", {"guild_id": guild_id, "user": user_payload})
+        audit.log(guild_id, bot.id, uid, 22, reason=reason)  # MEMBER_BAN_ADD
         banned.append(uid)
     return {"banned_users": banned, "failed_users": failed}

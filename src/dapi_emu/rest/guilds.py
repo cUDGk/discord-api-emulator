@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from .. import audit
 from ..auth import require_bot
 from ..state import WORLD, User
 
@@ -28,13 +29,19 @@ async def get_guild(guild_id: str, with_counts: bool = False, _bot: User = Depen
 
 
 @router.patch("/guilds/{guild_id}")
-async def edit_guild(guild_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_guild(guild_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     g = _require_guild(guild_id)
+    changes: list[dict] = []
     for field in ("name", "description", "icon"):
         if field in body:
-            setattr(g, field, body[field])
+            old = getattr(g, field)
+            new = body[field]
+            if old != new:
+                changes.append({"key": field, "old_value": old, "new_value": new})
+            setattr(g, field, new)
     payload = g.to_dict(WORLD)
     WORLD.bus.publish("GUILD_UPDATE", payload)
+    audit.log(guild_id, bot.id, guild_id, 1, changes=changes)  # GUILD_UPDATE
     return payload
 
 
@@ -45,7 +52,7 @@ async def list_channels(guild_id: str, _bot: User = Depends(require_bot)) -> lis
 
 
 @router.post("/guilds/{guild_id}/channels", status_code=201)
-async def create_channel(guild_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def create_channel(guild_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     _require_guild(guild_id)
     ch = WORLD.create_channel(
         name=body.get("name", "channel"),
@@ -61,6 +68,7 @@ async def create_channel(guild_id: str, body: dict, _bot: User = Depends(require
         ch.position = int(body["position"])
     payload = ch.to_dict()
     WORLD.bus.publish("CHANNEL_CREATE", payload)
+    audit.log(guild_id, bot.id, ch.id, 10)  # CHANNEL_CREATE
     return payload
 
 
@@ -91,45 +99,72 @@ async def get_member(guild_id: str, user_id: str, _bot: User = Depends(require_b
 
 
 @router.patch("/guilds/{guild_id}/members/{user_id}")
-async def edit_member(guild_id: str, user_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_member(guild_id: str, user_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     m = WORLD.members.get((user_id, guild_id))
     if not m:
         raise HTTPException(status_code=404, detail={"code": 10007, "message": "Unknown Member"})
+    changes: list[dict] = []
     if "nick" in body:
-        m.nick = body["nick"]
+        old = m.nick
+        new = body["nick"]
+        if old != new:
+            changes.append({"key": "nick", "old_value": old, "new_value": new})
+        m.nick = new
     if "roles" in body:
-        m.roles = body["roles"]
+        old_roles = list(m.roles)
+        new_roles = list(body["roles"])
+        if old_roles != new_roles:
+            changes.append({"key": "$roles", "old_value": old_roles, "new_value": new_roles})
+        m.roles = new_roles
     if "deaf" in body:
-        m.deaf = bool(body["deaf"])
+        old = m.deaf
+        new = bool(body["deaf"])
+        if old != new:
+            changes.append({"key": "deaf", "old_value": old, "new_value": new})
+        m.deaf = new
     if "mute" in body:
-        m.mute = bool(body["mute"])
+        old = m.mute
+        new = bool(body["mute"])
+        if old != new:
+            changes.append({"key": "mute", "old_value": old, "new_value": new})
+        m.mute = new
     payload = m.to_dict(WORLD.users) | {"guild_id": guild_id}
     WORLD.bus.publish("GUILD_MEMBER_UPDATE", payload)
+    if changes:
+        audit.log(guild_id, bot.id, user_id, 24, changes=changes)  # MEMBER_UPDATE
     return m.to_dict(WORLD.users)
 
 
 @router.put("/guilds/{guild_id}/members/{user_id}/roles/{role_id}", status_code=204)
-async def add_member_role(guild_id: str, user_id: str, role_id: str, _bot: User = Depends(require_bot)):
+async def add_member_role(guild_id: str, user_id: str, role_id: str, bot: User = Depends(require_bot)):
     m = WORLD.members.get((user_id, guild_id))
     if not m:
         raise HTTPException(status_code=404, detail={"code": 10007, "message": "Unknown Member"})
     if role_id not in m.roles:
         m.roles.append(role_id)
     WORLD.bus.publish("GUILD_MEMBER_UPDATE", m.to_dict(WORLD.users) | {"guild_id": guild_id})
+    audit.log(  # MEMBER_ROLE_UPDATE
+        guild_id, bot.id, user_id, 25,
+        changes=[{"key": "$add", "new_value": [{"id": role_id, "name": WORLD.roles[role_id].name if role_id in WORLD.roles else role_id}]}],
+    )
 
 
 @router.delete("/guilds/{guild_id}/members/{user_id}/roles/{role_id}", status_code=204)
-async def remove_member_role(guild_id: str, user_id: str, role_id: str, _bot: User = Depends(require_bot)):
+async def remove_member_role(guild_id: str, user_id: str, role_id: str, bot: User = Depends(require_bot)):
     m = WORLD.members.get((user_id, guild_id))
     if not m:
         raise HTTPException(status_code=404, detail={"code": 10007, "message": "Unknown Member"})
     if role_id in m.roles:
         m.roles.remove(role_id)
     WORLD.bus.publish("GUILD_MEMBER_UPDATE", m.to_dict(WORLD.users) | {"guild_id": guild_id})
+    audit.log(  # MEMBER_ROLE_UPDATE
+        guild_id, bot.id, user_id, 25,
+        changes=[{"key": "$remove", "new_value": [{"id": role_id, "name": WORLD.roles[role_id].name if role_id in WORLD.roles else role_id}]}],
+    )
 
 
 @router.delete("/guilds/{guild_id}/members/{user_id}", status_code=204)
-async def kick_member(guild_id: str, user_id: str, _bot: User = Depends(require_bot)):
+async def kick_member(guild_id: str, user_id: str, bot: User = Depends(require_bot)):
     g = WORLD.guilds.get(guild_id)
     if g and user_id in g.member_ids:
         g.member_ids.remove(user_id)
@@ -139,6 +174,7 @@ async def kick_member(guild_id: str, user_id: str, _bot: User = Depends(require_
         "guild_id": guild_id,
         "user": user.to_dict() if user else {"id": user_id},
     })
+    audit.log(guild_id, bot.id, user_id, 20)  # MEMBER_KICK
 
 
 # Roles --------------------------------------------------------------------
@@ -150,7 +186,7 @@ async def list_roles(guild_id: str, _bot: User = Depends(require_bot)) -> list[d
 
 
 @router.post("/guilds/{guild_id}/roles", status_code=200)
-async def create_role(guild_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def create_role(guild_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     _require_guild(guild_id)
     role = WORLD.create_role(
         guild_id=guild_id,
@@ -161,23 +197,30 @@ async def create_role(guild_id: str, body: dict, _bot: User = Depends(require_bo
         mentionable=bool(body.get("mentionable", False)),
     )
     WORLD.bus.publish("GUILD_ROLE_CREATE", {"guild_id": guild_id, "role": role.to_dict()})
+    audit.log(guild_id, bot.id, role.id, 30)  # ROLE_CREATE
     return role.to_dict()
 
 
 @router.patch("/guilds/{guild_id}/roles/{role_id}")
-async def edit_role(guild_id: str, role_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_role(guild_id: str, role_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     role = WORLD.roles.get(role_id)
     if not role or role.guild_id != guild_id:
         raise HTTPException(status_code=404, detail={"code": 10011, "message": "Unknown Role"})
+    changes: list[dict] = []
     for f in ("name", "color", "hoist", "permissions", "mentionable", "position"):
         if f in body:
-            setattr(role, f, body[f] if f != "permissions" else str(body[f]))
+            old = getattr(role, f)
+            new = body[f] if f != "permissions" else str(body[f])
+            if old != new:
+                changes.append({"key": f, "old_value": old, "new_value": new})
+            setattr(role, f, new)
     WORLD.bus.publish("GUILD_ROLE_UPDATE", {"guild_id": guild_id, "role": role.to_dict()})
+    audit.log(guild_id, bot.id, role_id, 31, changes=changes)  # ROLE_UPDATE
     return role.to_dict()
 
 
 @router.delete("/guilds/{guild_id}/roles/{role_id}", status_code=204)
-async def delete_role(guild_id: str, role_id: str, _bot: User = Depends(require_bot)):
+async def delete_role(guild_id: str, role_id: str, bot: User = Depends(require_bot)):
     role = WORLD.roles.get(role_id)
     if not role or role.guild_id != guild_id:
         raise HTTPException(status_code=404, detail={"code": 10011, "message": "Unknown Role"})
@@ -186,3 +229,4 @@ async def delete_role(guild_id: str, role_id: str, _bot: User = Depends(require_
     if g and role_id in g.role_ids:
         g.role_ids.remove(role_id)
     WORLD.bus.publish("GUILD_ROLE_DELETE", {"guild_id": guild_id, "role_id": role_id})
+    audit.log(guild_id, bot.id, role_id, 32)  # ROLE_DELETE

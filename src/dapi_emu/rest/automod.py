@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from .. import audit
 from ..auth import require_bot
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
@@ -63,12 +64,17 @@ async def create_automod_rule(guild_id: str, body: dict, bot: User = Depends(req
     WORLD.automod_rules[rule_id] = rule
     WORLD.guild_automod_rules.setdefault(guild_id, []).append(rule_id)
     WORLD.bus.publish("AUTO_MODERATION_RULE_CREATE", rule)
+    audit.log(  # AUTO_MODERATION_RULE_CREATE
+        guild_id, bot.id, rule_id, 140,
+        changes=[{"key": "name", "new_value": name}],
+    )
     return rule
 
 
 @router.patch("/guilds/{guild_id}/auto-moderation/rules/{rule_id}")
-async def edit_automod_rule(guild_id: str, rule_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_automod_rule(guild_id: str, rule_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     rule = _require_rule(guild_id, rule_id)
+    changes: list[dict] = []
     for field in (
         "name",
         "event_type",
@@ -79,15 +85,25 @@ async def edit_automod_rule(guild_id: str, rule_id: str, body: dict, _bot: User 
         "exempt_channels",
     ):
         if field in body:
-            rule[field] = body[field]
+            old = rule.get(field)
+            new = body[field]
+            if old != new:
+                changes.append({"key": field, "old_value": old, "new_value": new})
+            rule[field] = new
     WORLD.bus.publish("AUTO_MODERATION_RULE_UPDATE", rule)
+    audit.log(guild_id, bot.id, rule_id, 141, changes=changes)  # AUTO_MOD_RULE_UPDATE
     return rule
 
 
 @router.delete("/guilds/{guild_id}/auto-moderation/rules/{rule_id}", status_code=204)
-async def delete_automod_rule(guild_id: str, rule_id: str, _bot: User = Depends(require_bot)):
+async def delete_automod_rule(guild_id: str, rule_id: str, bot: User = Depends(require_bot)):
     rule = _require_rule(guild_id, rule_id)
+    name = rule.get("name")
     WORLD.automod_rules.pop(rule_id, None)
     if rule_id in WORLD.guild_automod_rules.get(guild_id, []):
         WORLD.guild_automod_rules[guild_id].remove(rule_id)
     WORLD.bus.publish("AUTO_MODERATION_RULE_DELETE", rule)
+    audit.log(  # AUTO_MOD_RULE_DELETE
+        guild_id, bot.id, rule_id, 142,
+        changes=[{"key": "name", "old_value": name}],
+    )

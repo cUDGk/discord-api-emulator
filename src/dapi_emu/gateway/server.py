@@ -1,10 +1,11 @@
 """Discord-compatible Gateway WebSocket endpoint.
 
 Supports:
-- json encoding (always)
-- zlib-stream compression (?compress=zlib-stream) — required by discord.js default
+- json / etf encoding (?encoding=json|etf)
+- zlib-stream / zstd-stream compression (?compress=...)
 - op 2 IDENTIFY / op 1 HEARTBEAT / op 6 RESUME (replays missed dispatches)
 - per-bot event isolation via _should_deliver()
+- sharding: IDENTIFY's `shard: [id, count]` filters guild-scoped dispatches
 """
 from __future__ import annotations
 
@@ -12,7 +13,6 @@ import asyncio
 import json
 import logging
 import time
-import zlib
 from collections import deque
 from typing import Any, Deque
 
@@ -21,6 +21,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from .. import config
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD
+from .encoding import Compressor, decode as wire_decode, encode as wire_encode
 
 log = logging.getLogger("dapi.gateway")
 
@@ -46,7 +47,12 @@ RESUME_TTL_SEC = 180
 
 
 class Session:
-    def __init__(self, ws: WebSocket, compress: str | None = None) -> None:
+    def __init__(
+        self,
+        ws: WebSocket,
+        compress: str | None = None,
+        encoding: str = "json",
+    ) -> None:
         self.ws = ws
         self.session_id: str = new_snowflake()
         self.seq: int = 0
@@ -56,11 +62,13 @@ class Session:
         self.queue: asyncio.Queue[tuple[str, dict[str, Any]]] | None = None
         self.closed = False
 
-        # zlib-stream: shared deflate context across the whole connection.
-        self.compress = compress  # None or "zlib-stream"
-        self._compressor = (
-            zlib.compressobj(level=6, wbits=15) if compress == "zlib-stream" else None
-        )
+        self.encoding = encoding  # "json" or "etf"
+        self.compress = compress  # None | "zlib-stream" | "zstd-stream"
+        self._compressor = Compressor(compress)
+
+        # Sharding: IDENTIFY may set these. Default = single shard.
+        self.shard_id: int = 0
+        self.shard_count: int = 1
 
         # Ring buffer of (seq, event_name, data) for RESUME replay.
         self.dispatch_history: Deque[tuple[int, str, dict[str, Any]]] = deque(
@@ -70,18 +78,15 @@ class Session:
     async def send(self, payload: dict[str, Any]) -> None:
         if self.closed:
             return
-        text = json.dumps(payload, separators=(",", ":"))
         try:
-            if self._compressor:
-                data = text.encode("utf-8")
-                # Z_SYNC_FLUSH emits the 00 00 ff ff marker the client looks for.
-                compressed = (
-                    self._compressor.compress(data)
-                    + self._compressor.flush(zlib.Z_SYNC_FLUSH)
-                )
-                await self.ws.send_bytes(compressed)
+            wire = wire_encode(payload, self.encoding)
+            if self._compressor.kind:
+                raw = wire.encode("utf-8") if isinstance(wire, str) else wire
+                await self.ws.send_bytes(self._compressor.compress(raw))
+            elif isinstance(wire, str):
+                await self.ws.send_text(wire)
             else:
-                await self.ws.send_text(text)
+                await self.ws.send_bytes(wire)
         except Exception:
             self.closed = True
 
@@ -138,6 +143,22 @@ def _resolve_guild_id(data: dict[str, Any]) -> str | None:
     return None
 
 
+def _shard_matches(session: "Session", guild_id: str | None) -> bool:
+    """Sharding filter: a guild belongs to shard `(guild_id >> 22) % count`.
+
+    Sessions without an explicit shard tuple always have count == 1 so this
+    short-circuits to True. We tolerate sessions that lack the attribute so
+    `_should_deliver` stays unit-testable with a minimal fake session object.
+    """
+    count = getattr(session, "shard_count", 1) or 1
+    if count == 1 or guild_id is None:
+        return True
+    try:
+        return (int(guild_id) >> 22) % count == getattr(session, "shard_id", 0)
+    except (TypeError, ValueError):
+        return True
+
+
 def _should_deliver(session: "Session", event_name: str, data: dict[str, Any]) -> bool:
     """Return True iff this bot should receive this event."""
     user_id = session.user_id
@@ -152,11 +173,15 @@ def _should_deliver(session: "Session", event_name: str, data: dict[str, Any]) -
         if not app_id:
             return False
         app = WORLD.applications.get(app_id)
-        return bool(app and app.bot_id == user_id)
+        if not (app and app.bot_id == user_id):
+            return False
+        return _shard_matches(session, data.get("guild_id"))
 
     guild_id = _resolve_guild_id(data)
     if guild_id is not None:
-        return (user_id, guild_id) in WORLD.members
+        if (user_id, guild_id) not in WORLD.members:
+            return False
+        return _shard_matches(session, guild_id)
 
     channel_id = data.get("channel_id") or data.get("id")
     if channel_id and channel_id in WORLD.channels:
@@ -185,17 +210,19 @@ async def gateway_ws(
     encoding: str | None = Query(default="json"),
     compress: str | None = Query(default=None),
 ) -> None:
-    # ETF is not supported; force json.
-    if encoding and encoding != "json":
+    enc = (encoding or "json").lower()
+    if enc not in ("json", "etf"):
         await ws.accept()
         await ws.close(code=4000)
         return
 
+    comp = compress if compress in ("zlib-stream", "zstd-stream") else None
+
     await ws.accept()
-    session = Session(ws, compress=compress if compress == "zlib-stream" else None)
+    session = Session(ws, compress=comp, encoding=enc)
     log.info(
-        "gateway: new connection session=%s compress=%s",
-        session.session_id, session.compress,
+        "gateway: new connection session=%s encoding=%s compress=%s",
+        session.session_id, session.encoding, session.compress,
     )
 
     # Hello
@@ -228,10 +255,19 @@ async def gateway_ws(
 
     try:
         while True:
-            raw = await ws.receive_text()
+            frame = await ws.receive()
+            if frame.get("type") == "websocket.disconnect":
+                raise WebSocketDisconnect(frame.get("code", 1000))
+            raw: bytes | str
+            if "text" in frame and frame["text"] is not None:
+                raw = frame["text"]
+            elif "bytes" in frame and frame["bytes"] is not None:
+                raw = frame["bytes"]
+            else:
+                continue
             try:
-                msg = json.loads(raw)
-            except json.JSONDecodeError:
+                msg = wire_decode(raw, session.encoding)
+            except (json.JSONDecodeError, ValueError):
                 await ws.close(code=4002)
                 return
             op = msg.get("op")
@@ -252,6 +288,14 @@ async def gateway_ws(
                 session.token = token_raw
                 session.intents = int(d.get("intents", 0))
 
+                shard = d.get("shard")
+                if isinstance(shard, (list, tuple)) and len(shard) == 2:
+                    try:
+                        session.shard_id = int(shard[0])
+                        session.shard_count = max(1, int(shard[1]))
+                    except (TypeError, ValueError):
+                        pass
+
                 await start_event_pump()
 
                 app = next(
@@ -264,6 +308,7 @@ async def gateway_ws(
                     {"id": g.id, "unavailable": True}
                     for g in WORLD.guilds.values()
                     if (user_id, g.id) in WORLD.members
+                    and _shard_matches(session, g.id)
                 ]
 
                 ready_d = {
@@ -276,7 +321,7 @@ async def gateway_ws(
                         "id": app.id if app else user_id,
                         "flags": app.flags if app else 0,
                     },
-                    "shard": d.get("shard", [0, 1]),
+                    "shard": [session.shard_id, session.shard_count],
                     "session_type": "normal",
                     "auth": {},
                     "geo_ordered_rtc_regions": ["us-east"],
@@ -289,7 +334,7 @@ async def gateway_ws(
                 await session.dispatch("READY", ready_d)
 
                 for g in list(WORLD.guilds.values()):
-                    if (user_id, g.id) in WORLD.members:
+                    if (user_id, g.id) in WORLD.members and _shard_matches(session, g.id):
                         await session.dispatch("GUILD_CREATE", g.to_dict(WORLD, full=True))
 
             elif op == OP_RESUME:

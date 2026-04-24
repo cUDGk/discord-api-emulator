@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from .. import audit
 from ..auth import require_bot
 from ..state import WORLD, User
 
@@ -55,7 +56,7 @@ async def get_invite(
 
 
 @router.delete("/invites/{code}")
-async def delete_invite(code: str, _bot: User = Depends(require_bot)) -> dict:
+async def delete_invite(code: str, bot: User = Depends(require_bot)) -> dict:
     inv = WORLD.invites.pop(code, None)
     if not inv:
         raise HTTPException(status_code=404, detail={"code": 10006, "message": "Unknown Invite"})
@@ -68,6 +69,10 @@ async def delete_invite(code: str, _bot: User = Depends(require_bot)) -> dict:
         "guild_id": gid,
         "code": code,
     })
+    audit.log(  # INVITE_DELETE
+        gid, bot.id, None, 42,
+        changes=[{"key": "code", "old_value": code}],
+    )
     return inv
 
 
@@ -136,6 +141,17 @@ async def create_channel_invite(channel_id: str, body: dict | None = None, bot: 
     WORLD.invites[code] = inv
     if ch.guild_id:
         WORLD.guild_invites.setdefault(ch.guild_id, []).append(code)
+
+    audit.log(  # INVITE_CREATE
+        ch.guild_id, bot.id, None, 40,
+        changes=[
+            {"key": "code", "new_value": code},
+            {"key": "channel_id", "new_value": ch.id},
+            {"key": "max_age", "new_value": inv["max_age"]},
+            {"key": "max_uses", "new_value": inv["max_uses"]},
+            {"key": "temporary", "new_value": inv["temporary"]},
+        ],
+    )
 
     WORLD.bus.publish("INVITE_CREATE", {
         "channel_id": ch.id,

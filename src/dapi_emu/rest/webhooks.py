@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from .. import audit
 from ..auth import require_bot
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
@@ -88,6 +89,14 @@ async def create_webhook(
         guild_id=ch.guild_id,
     )
     WORLD.bus.publish("WEBHOOKS_UPDATE", {"guild_id": ch.guild_id, "channel_id": channel_id})
+    audit.log(  # WEBHOOK_CREATE
+        ch.guild_id, bot.id, wh["id"], 50,
+        changes=[
+            {"key": "name", "new_value": wh["name"]},
+            {"key": "channel_id", "new_value": channel_id},
+            {"key": "type", "new_value": wh["type"]},
+        ],
+    )
     return wh
 
 
@@ -130,13 +139,21 @@ def _apply_webhook_patch(wh: dict, body: dict) -> None:
 
 @router.patch("/webhooks/{webhook_id}")
 async def modify_webhook(
-    webhook_id: str, body: dict, _bot: User = Depends(require_bot)
+    webhook_id: str, body: dict, bot: User = Depends(require_bot)
 ) -> dict:
     wh = _require_webhook(webhook_id)
+    changes: list[dict] = []
+    for f in ("name", "avatar", "channel_id"):
+        if f in body:
+            old = wh.get(f)
+            new = body[f]
+            if old != new:
+                changes.append({"key": f, "old_value": old, "new_value": new})
     _apply_webhook_patch(wh, body)
     WORLD.bus.publish("WEBHOOKS_UPDATE", {
         "guild_id": wh.get("guild_id"), "channel_id": wh.get("channel_id"),
     })
+    audit.log(wh.get("guild_id"), bot.id, webhook_id, 51, changes=changes)  # WEBHOOK_UPDATE
     return wh
 
 
@@ -154,12 +171,17 @@ async def modify_webhook_with_token(
 # --- Delete ---------------------------------------------------------------
 
 @router.delete("/webhooks/{webhook_id}", status_code=204)
-async def delete_webhook(webhook_id: str, _bot: User = Depends(require_bot)) -> None:
+async def delete_webhook(webhook_id: str, bot: User = Depends(require_bot)) -> None:
     wh = _require_webhook(webhook_id)
+    name = wh.get("name")
     WORLD.webhooks.pop(webhook_id, None)
     WORLD.bus.publish("WEBHOOKS_UPDATE", {
         "guild_id": wh.get("guild_id"), "channel_id": wh.get("channel_id"),
     })
+    audit.log(  # WEBHOOK_DELETE
+        wh.get("guild_id"), bot.id, webhook_id, 52,
+        changes=[{"key": "name", "old_value": name}],
+    )
 
 
 @router.delete("/webhooks/{webhook_id}/{webhook_token}", status_code=204)

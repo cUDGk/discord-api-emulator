@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from .. import audit
 from ..auth import require_bot
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
@@ -140,6 +141,13 @@ async def start_thread_from_message(
     )
     # thread id == starter message id per Discord convention (but we keep it separate)
     WORLD.bus.publish("THREAD_CREATE", thread)
+    audit.log(  # THREAD_CREATE
+        ch.guild_id, bot.id, thread["id"], 120,
+        changes=[
+            {"key": "name", "new_value": thread["name"]},
+            {"key": "type", "new_value": thread["type"]},
+        ],
+    )
     return thread
 
 
@@ -176,6 +184,13 @@ async def start_thread(
         thread["message_count"] = 1
         WORLD.bus.publish("MESSAGE_CREATE", msg.to_dict(WORLD.users))
     WORLD.bus.publish("THREAD_CREATE", thread)
+    audit.log(  # THREAD_CREATE
+        ch.guild_id, bot.id, thread["id"], 120,
+        changes=[
+            {"key": "name", "new_value": thread["name"]},
+            {"key": "type", "new_value": thread["type"]},
+        ],
+    )
     return thread
 
 

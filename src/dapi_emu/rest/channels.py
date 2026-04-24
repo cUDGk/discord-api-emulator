@@ -6,6 +6,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
+from .. import audit
 from ..auth import require_bot
 from ..state import WORLD, User
 
@@ -49,27 +50,35 @@ async def get_channel(channel_id: str, _bot: User = Depends(require_bot)) -> dic
 
 
 @router.patch("/channels/{channel_id}")
-async def edit_channel(channel_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_channel(channel_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     ch = _require_channel(channel_id)
+    changes: list[dict] = []
     for field in ("name", "topic", "nsfw", "position", "parent_id", "rate_limit_per_user"):
         if field in body:
-            setattr(ch, field, body[field])
+            old = getattr(ch, field)
+            new = body[field]
+            if old != new:
+                changes.append({"key": field, "old_value": old, "new_value": new})
+            setattr(ch, field, new)
     WORLD.bus.publish("CHANNEL_UPDATE", ch.to_dict(WORLD.users))
+    audit.log(ch.guild_id, bot.id, channel_id, 11, changes=changes)  # CHANNEL_UPDATE
     return ch.to_dict(WORLD.users)
 
 
 @router.delete("/channels/{channel_id}")
-async def delete_channel(channel_id: str, _bot: User = Depends(require_bot)) -> dict:
+async def delete_channel(channel_id: str, bot: User = Depends(require_bot)) -> dict:
     ch = _require_channel(channel_id)
     d = ch.to_dict(WORLD.users)
+    guild_id = ch.guild_id
     # remove from guild
-    if ch.guild_id and ch.guild_id in WORLD.guilds:
-        g = WORLD.guilds[ch.guild_id]
+    if guild_id and guild_id in WORLD.guilds:
+        g = WORLD.guilds[guild_id]
         if channel_id in g.channel_ids:
             g.channel_ids.remove(channel_id)
     WORLD.channels.pop(channel_id, None)
     WORLD.channel_messages.pop(channel_id, None)
     WORLD.bus.publish("CHANNEL_DELETE", d)
+    audit.log(guild_id, bot.id, channel_id, 12)  # CHANNEL_DELETE
     return d
 
 
@@ -153,16 +162,20 @@ async def edit_message(
 
 
 @router.delete("/channels/{channel_id}/messages/{message_id}", status_code=204)
-async def delete_message(channel_id: str, message_id: str, _bot: User = Depends(require_bot)):
+async def delete_message(channel_id: str, message_id: str, bot: User = Depends(require_bot)):
     m = WORLD.messages.get(message_id)
     if not m or m.channel_id != channel_id:
         raise HTTPException(status_code=404, detail={"code": 10008, "message": "Unknown Message"})
+    target_user = m.author_id
+    guild_id = m.guild_id
     WORLD.messages.pop(message_id, None)
     if message_id in WORLD.channel_messages.get(channel_id, []):
         WORLD.channel_messages[channel_id].remove(message_id)
     WORLD.bus.publish("MESSAGE_DELETE", {
-        "id": message_id, "channel_id": channel_id, "guild_id": m.guild_id,
+        "id": message_id, "channel_id": channel_id, "guild_id": guild_id,
     })
+    audit.log(guild_id, bot.id, target_user, 72,  # MESSAGE_DELETE
+              options={"channel_id": channel_id, "count": "1"})
 
 
 @router.post("/channels/{channel_id}/typing", status_code=204)

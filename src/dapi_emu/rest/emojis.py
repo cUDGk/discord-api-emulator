@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from .. import audit
 from ..auth import require_bot
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
@@ -79,28 +80,39 @@ async def create_guild_emoji(guild_id: str, body: dict, bot: User = Depends(requ
         "guild_id": guild_id,
         "emojis": [WORLD.emojis[i] for i in WORLD.guild_emojis.get(guild_id, []) if i in WORLD.emojis],
     })
+    audit.log(  # EMOJI_CREATE
+        guild_id, bot.id, emoji["id"], 60,
+        changes=[{"key": "name", "new_value": emoji["name"]}],
+    )
     return emoji
 
 
 @router.patch("/guilds/{guild_id}/emojis/{emoji_id}")
-async def edit_guild_emoji(guild_id: str, emoji_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_guild_emoji(guild_id: str, emoji_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     _require_guild(guild_id)
     emoji = _emoji_for_guild(guild_id, emoji_id)
+    changes: list[dict] = []
     if "name" in body:
-        emoji["name"] = body["name"]
+        old = emoji.get("name")
+        new = body["name"]
+        if old != new:
+            changes.append({"key": "name", "old_value": old, "new_value": new})
+        emoji["name"] = new
     if "roles" in body:
         emoji["roles"] = list(body["roles"] or [])
     WORLD.bus.publish("GUILD_EMOJIS_UPDATE", {
         "guild_id": guild_id,
         "emojis": [WORLD.emojis[i] for i in WORLD.guild_emojis.get(guild_id, []) if i in WORLD.emojis],
     })
+    audit.log(guild_id, bot.id, emoji_id, 61, changes=changes)  # EMOJI_UPDATE
     return emoji
 
 
 @router.delete("/guilds/{guild_id}/emojis/{emoji_id}", status_code=204)
-async def delete_guild_emoji(guild_id: str, emoji_id: str, _bot: User = Depends(require_bot)):
+async def delete_guild_emoji(guild_id: str, emoji_id: str, bot: User = Depends(require_bot)):
     _require_guild(guild_id)
-    _emoji_for_guild(guild_id, emoji_id)
+    emoji = _emoji_for_guild(guild_id, emoji_id)
+    name = emoji.get("name")
     WORLD.emojis.pop(emoji_id, None)
     lst = WORLD.guild_emojis.get(guild_id, [])
     if emoji_id in lst:
@@ -109,6 +121,10 @@ async def delete_guild_emoji(guild_id: str, emoji_id: str, _bot: User = Depends(
         "guild_id": guild_id,
         "emojis": [WORLD.emojis[i] for i in WORLD.guild_emojis.get(guild_id, []) if i in WORLD.emojis],
     })
+    audit.log(  # EMOJI_DELETE
+        guild_id, bot.id, emoji_id, 62,
+        changes=[{"key": "name", "old_value": name}],
+    )
 
 
 # --- Application emojis ---------------------------------------------------

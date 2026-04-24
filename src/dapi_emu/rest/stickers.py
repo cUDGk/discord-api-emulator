@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
+from .. import audit
 from ..auth import require_bot
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
@@ -100,28 +101,39 @@ async def create_guild_sticker(guild_id: str, request: Request, bot: User = Depe
         "guild_id": guild_id,
         "stickers": [WORLD.stickers[i] for i in WORLD.guild_stickers.get(guild_id, []) if i in WORLD.stickers],
     })
+    audit.log(  # STICKER_CREATE
+        guild_id, bot.id, sid, 100,
+        changes=[{"key": "name", "new_value": name}],
+    )
     return sticker
 
 
 @router.patch("/guilds/{guild_id}/stickers/{sticker_id}")
-async def edit_guild_sticker(guild_id: str, sticker_id: str, request: Request, _bot: User = Depends(require_bot)) -> dict:
+async def edit_guild_sticker(guild_id: str, sticker_id: str, request: Request, bot: User = Depends(require_bot)) -> dict:
     _require_guild(guild_id)
     sticker = _sticker_for_guild(guild_id, sticker_id)
     body = await _parse_sticker_body(request)
+    changes: list[dict] = []
     for field in ("name", "description", "tags"):
         if field in body:
-            sticker[field] = body[field]
+            old = sticker.get(field)
+            new = body[field]
+            if old != new:
+                changes.append({"key": field, "old_value": old, "new_value": new})
+            sticker[field] = new
     WORLD.bus.publish("GUILD_STICKERS_UPDATE", {
         "guild_id": guild_id,
         "stickers": [WORLD.stickers[i] for i in WORLD.guild_stickers.get(guild_id, []) if i in WORLD.stickers],
     })
+    audit.log(guild_id, bot.id, sticker_id, 101, changes=changes)  # STICKER_UPDATE
     return sticker
 
 
 @router.delete("/guilds/{guild_id}/stickers/{sticker_id}", status_code=204)
-async def delete_guild_sticker(guild_id: str, sticker_id: str, _bot: User = Depends(require_bot)):
+async def delete_guild_sticker(guild_id: str, sticker_id: str, bot: User = Depends(require_bot)):
     _require_guild(guild_id)
-    _sticker_for_guild(guild_id, sticker_id)
+    sticker = _sticker_for_guild(guild_id, sticker_id)
+    name = sticker.get("name")
     WORLD.stickers.pop(sticker_id, None)
     lst = WORLD.guild_stickers.get(guild_id, [])
     if sticker_id in lst:
@@ -130,3 +142,7 @@ async def delete_guild_sticker(guild_id: str, sticker_id: str, _bot: User = Depe
         "guild_id": guild_id,
         "stickers": [WORLD.stickers[i] for i in WORLD.guild_stickers.get(guild_id, []) if i in WORLD.stickers],
     })
+    audit.log(  # STICKER_DELETE
+        guild_id, bot.id, sticker_id, 102,
+        changes=[{"key": "name", "old_value": name}],
+    )

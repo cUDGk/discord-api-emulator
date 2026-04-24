@@ -4,6 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
+from .. import audit
 from ..auth import require_bot
 from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
@@ -75,6 +76,10 @@ async def create_scheduled_event(guild_id: str, body: dict, bot: User = Depends(
     WORLD.scheduled_events[event_id] = ev
     WORLD.guild_scheduled_events.setdefault(guild_id, []).append(event_id)
     WORLD.bus.publish("GUILD_SCHEDULED_EVENT_CREATE", ev)
+    audit.log(  # GUILD_SCHEDULED_EVENT_CREATE
+        guild_id, bot.id, event_id, 110,
+        changes=[{"key": "name", "new_value": name}],
+    )
     return ev
 
 
@@ -90,8 +95,9 @@ async def get_scheduled_event(
 
 
 @router.patch("/guilds/{guild_id}/scheduled-events/{event_id}")
-async def edit_scheduled_event(guild_id: str, event_id: str, body: dict, _bot: User = Depends(require_bot)) -> dict:
+async def edit_scheduled_event(guild_id: str, event_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
     ev = _require_event(guild_id, event_id)
+    changes: list[dict] = []
     for field in (
         "channel_id",
         "name",
@@ -105,18 +111,28 @@ async def edit_scheduled_event(guild_id: str, event_id: str, body: dict, _bot: U
         "image",
     ):
         if field in body:
-            ev[field] = body[field]
+            old = ev.get(field)
+            new = body[field]
+            if old != new:
+                changes.append({"key": field, "old_value": old, "new_value": new})
+            ev[field] = new
     WORLD.bus.publish("GUILD_SCHEDULED_EVENT_UPDATE", ev)
+    audit.log(guild_id, bot.id, event_id, 111, changes=changes)  # GUILD_SCHEDULED_EVENT_UPDATE
     return ev
 
 
 @router.delete("/guilds/{guild_id}/scheduled-events/{event_id}", status_code=204)
-async def delete_scheduled_event(guild_id: str, event_id: str, _bot: User = Depends(require_bot)):
+async def delete_scheduled_event(guild_id: str, event_id: str, bot: User = Depends(require_bot)):
     ev = _require_event(guild_id, event_id)
+    name = ev.get("name")
     WORLD.scheduled_events.pop(event_id, None)
     if event_id in WORLD.guild_scheduled_events.get(guild_id, []):
         WORLD.guild_scheduled_events[guild_id].remove(event_id)
     WORLD.bus.publish("GUILD_SCHEDULED_EVENT_DELETE", ev)
+    audit.log(  # GUILD_SCHEDULED_EVENT_DELETE
+        guild_id, bot.id, event_id, 112,
+        changes=[{"key": "name", "old_value": name}],
+    )
 
 
 @router.get("/guilds/{guild_id}/scheduled-events/{event_id}/users")
