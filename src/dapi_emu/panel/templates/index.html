@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>dapi-emu control panel</title>
+<style>
+  :root { color-scheme: dark; }
+  body { background: #0d1117; color: #c9d1d9; font-family: -apple-system, Segoe UI, sans-serif; margin: 0; padding: 16px; }
+  h1 { font-size: 18px; margin: 0 0 12px 0; }
+  h2 { font-size: 14px; margin: 20px 0 8px 0; color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 12px; }
+  button { background: #238636; color: #fff; border: 0; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 13px; }
+  button.danger { background: #da3633; }
+  button.sec { background: #21262d; border: 1px solid #30363d; }
+  input, select, textarea { background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; padding: 5px 8px; border-radius: 4px; font-size: 13px; width: 100%; box-sizing: border-box; }
+  label { display: block; font-size: 12px; color: #8b949e; margin-top: 8px; }
+  pre { background: #0d1117; padding: 8px; border-radius: 4px; overflow: auto; max-height: 300px; font-size: 11px; line-height: 1.4; border: 1px solid #30363d; }
+  .row { display: flex; gap: 8px; align-items: end; margin-top: 8px; }
+  .row > * { flex: 1; }
+  .row button { flex: 0 0 auto; }
+  .mono { font-family: Consolas, Menlo, monospace; font-size: 11px; }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 10px; background: #1f6feb; font-size: 10px; margin-left: 4px; }
+  .pill.bot { background: #8957e5; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  td, th { text-align: left; padding: 4px 6px; border-bottom: 1px solid #21262d; }
+  th { color: #8b949e; font-weight: normal; }
+  .muted { color: #8b949e; font-size: 11px; }
+  .copy { cursor: pointer; color: #58a6ff; }
+</style>
+</head>
+<body>
+<h1>🎛 dapi-emu — Discord Bot API Emulator Control Panel</h1>
+<p class="muted">REST: <span class="mono">/api/v10/...</span> &nbsp;·&nbsp; Gateway: <span class="mono">ws://…/gateway</span></p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Users / Bots</h2>
+    <div class="row">
+      <input id="u_name" placeholder="username">
+      <label style="flex: 0 0 auto; display: flex; align-items: center; gap: 4px;">
+        <input type="checkbox" id="u_bot" style="width: auto;"> bot
+      </label>
+      <button onclick="createUser()">create</button>
+    </div>
+    <div id="users"></div>
+  </div>
+
+  <div class="card">
+    <h2>Guilds</h2>
+    <div class="row">
+      <input id="g_name" placeholder="guild name">
+      <select id="g_owner"></select>
+      <button onclick="createGuild()">create</button>
+    </div>
+    <div id="guilds"></div>
+  </div>
+
+  <div class="card">
+    <h2>Add Member to Guild</h2>
+    <div class="row">
+      <select id="m_user"></select>
+      <select id="m_guild"></select>
+      <button onclick="addMember()">add</button>
+    </div>
+
+    <h2 style="margin-top: 20px;">Create Role</h2>
+    <div class="row">
+      <input id="r_name" placeholder="role name">
+      <select id="r_guild"></select>
+      <input id="r_color" placeholder="color (int)" value="0" style="max-width: 100px;">
+      <button onclick="createRole()">create</button>
+    </div>
+
+    <h2 style="margin-top: 20px;">Create Channel</h2>
+    <div class="row">
+      <input id="c_name" placeholder="channel name">
+      <select id="c_guild"></select>
+      <select id="c_type">
+        <option value="0">text (0)</option>
+        <option value="2">voice (2)</option>
+        <option value="4">category (4)</option>
+        <option value="5">announcement (5)</option>
+        <option value="15">forum (15)</option>
+      </select>
+      <button onclick="createChannel()">create</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📨 Inject MESSAGE_CREATE</h2>
+    <div class="row">
+      <select id="sm_author"></select>
+      <select id="sm_channel"></select>
+    </div>
+    <label>content</label>
+    <textarea id="sm_content" rows="2" placeholder="hello bot"></textarea>
+    <div style="margin-top: 8px;">
+      <button onclick="sendMessage()">send</button>
+      <button class="sec" onclick="fillHello()">fill example</button>
+    </div>
+
+    <h2 style="margin-top: 20px;">⚡ Raw dispatch</h2>
+    <label>event name</label>
+    <input id="raw_event" placeholder="TYPING_START" value="TYPING_START">
+    <label>data (JSON)</label>
+    <textarea id="raw_data" rows="3" class="mono">{}</textarea>
+    <div style="margin-top: 8px;">
+      <button onclick="rawDispatch()">dispatch</button>
+      <button class="danger" onclick="resetWorld()">reset world</button>
+    </div>
+  </div>
+</div>
+
+<h2>📦 State snapshot</h2>
+<pre id="state"></pre>
+
+<script>
+const $ = id => document.getElementById(id);
+async function api(method, path, body) {
+  const r = await fetch(path, {
+    method, headers: {"content-type": "application/json"},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!r.ok) { alert(`${method} ${path} -> ${r.status}`); return null; }
+  if (r.status === 204) return {};
+  return r.json();
+}
+async function refresh() {
+  const s = await fetch("/admin/state").then(r => r.json());
+  $("state").textContent = JSON.stringify(s, null, 2);
+
+  // Users list
+  $("users").innerHTML = `<table><tr><th>id</th><th>username</th><th></th><th>token</th></tr>` +
+    s.users.map(u => {
+      const bot = s.bot_tokens.find(t => t.bot_id === u.id);
+      return `<tr>
+        <td class="mono">${u.id}</td>
+        <td>${u.username}${u.bot ? '<span class="pill bot">BOT</span>' : ''}</td>
+        <td><button class="danger sec" onclick="delUser('${u.id}')">×</button></td>
+        <td class="mono">${bot ? `<span class="copy" onclick="navigator.clipboard.writeText('${bot.token}');this.textContent='copied'">${bot.token.slice(0,24)}…</span>` : ''}</td>
+      </tr>`;
+    }).join("") + `</table>`;
+
+  // Guilds list
+  $("guilds").innerHTML = s.guilds.map(g =>
+    `<div style="margin-top:8px;padding:6px;background:#0d1117;border-radius:4px;">
+      <b>${g.name}</b> <span class="mono muted">${g.id}</span><br>
+      <span class="muted">members:</span> ${g.members.map(m => m.user.username).join(", ") || "none"}<br>
+      <span class="muted">channels:</span> ${g.channels.map(c => `#${c.name}`).join(", ") || "none"}<br>
+      <span class="muted">roles:</span> ${g.roles.map(r => r.name).join(", ") || "none"}
+    </div>`
+  ).join("");
+
+  // Populate selects
+  const userOpts = s.users.map(u => `<option value="${u.id}">${u.username}</option>`).join("");
+  const guildOpts = s.guilds.map(g => `<option value="${g.id}">${g.name}</option>`).join("");
+  const channelOpts = s.guilds.flatMap(g =>
+    g.channels.map(c => `<option value="${c.id}">${g.name} #${c.name}</option>`)
+  ).join("");
+
+  ["g_owner","m_user","sm_author"].forEach(id => $(id).innerHTML = userOpts);
+  ["m_guild","r_guild","c_guild"].forEach(id => $(id).innerHTML = guildOpts);
+  $("sm_channel").innerHTML = channelOpts;
+}
+
+async function createUser() {
+  const username = $("u_name").value.trim();
+  if (!username) return;
+  const r = await api("POST", "/admin/users", { username, bot: $("u_bot").checked });
+  if (r && r.token) alert("Bot token:\n" + r.token);
+  $("u_name").value = "";
+  refresh();
+}
+async function delUser(id) {
+  if (!confirm("delete user " + id + "?")) return;
+  await api("DELETE", "/admin/users/" + id);
+  refresh();
+}
+async function createGuild() {
+  const name = $("g_name").value.trim();
+  const owner_id = $("g_owner").value;
+  if (!name || !owner_id) return;
+  await api("POST", "/admin/guilds", { name, owner_id });
+  $("g_name").value = "";
+  refresh();
+}
+async function addMember() {
+  const user_id = $("m_user").value;
+  const guild_id = $("m_guild").value;
+  if (!user_id || !guild_id) return;
+  await api("POST", `/admin/guilds/${guild_id}/members`, { user_id });
+  refresh();
+}
+async function createRole() {
+  const name = $("r_name").value.trim();
+  const guild_id = $("r_guild").value;
+  const color = parseInt($("r_color").value) || 0;
+  if (!name || !guild_id) return;
+  await api("POST", `/admin/guilds/${guild_id}/roles`, { name, color });
+  $("r_name").value = "";
+  refresh();
+}
+async function createChannel() {
+  const name = $("c_name").value.trim();
+  const guild_id = $("c_guild").value;
+  const type = parseInt($("c_type").value);
+  if (!name || !guild_id) return;
+  await api("POST", `/admin/guilds/${guild_id}/channels`, { name, type });
+  $("c_name").value = "";
+  refresh();
+}
+async function sendMessage() {
+  const author_id = $("sm_author").value;
+  const channel_id = $("sm_channel").value;
+  const content = $("sm_content").value;
+  if (!author_id || !channel_id) return;
+  await api("POST", "/admin/send-message", { author_id, channel_id, content });
+  $("sm_content").value = "";
+  refresh();
+}
+async function rawDispatch() {
+  const event = $("raw_event").value.trim();
+  let data;
+  try { data = JSON.parse($("raw_data").value || "{}"); }
+  catch (e) { alert("invalid JSON"); return; }
+  await api("POST", "/admin/dispatch", { event, data });
+}
+async function resetWorld() {
+  if (!confirm("wipe entire world?")) return;
+  await api("POST", "/admin/reset");
+  refresh();
+}
+function fillHello() {
+  $("sm_content").value = "hello bot!";
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
