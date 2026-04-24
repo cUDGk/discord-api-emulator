@@ -327,6 +327,7 @@ class World:
         self.bans: dict[tuple[str, str], dict[str, Any]] = {}  # (guild_id, user_id)
         self.audit_logs: dict[str, list[dict[str, Any]]] = {}  # guild_id -> entries
         self.voice_states: dict[tuple[str, str], dict[str, Any]] = {}  # (guild_id, user_id)
+        self.voice_sessions: dict[str, dict] = {}  # session_id -> {ssrc, user_id, guild_id, channel_id, remote_addr?}
         self.stage_instances: dict[str, dict[str, Any]] = {}
         self.scheduled_events: dict[str, dict[str, Any]] = {}
         self.guild_scheduled_events: dict[str, list[str]] = {}

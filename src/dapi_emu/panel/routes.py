@@ -4,12 +4,14 @@ Not part of the Discord-compatible surface. Lives under /panel and /admin.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
 
+from .. import persistence
 from ..state import WORLD
 
 router = APIRouter()
@@ -435,4 +437,6 @@ async def admin_reset() -> dict:
     WORLD.commands.clear()
     WORLD.guild_commands.clear()
     WORLD.global_commands.clear()
+    if persistence.is_enabled():
+        persistence.wipe_db(os.environ["DAPI_DB_PATH"])
     return {"ok": True}

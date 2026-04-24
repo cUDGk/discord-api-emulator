@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>__APP_NAME__ を承認 - dapi-emu</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root {
+    --bg: #2f3136;
+    --bg-elev: #36393f;
+    --bg-input: #202225;
+    --accent: #5865f2;
+    --accent-hover: #4752c4;
+    --danger: #ed4245;
+    --text: #dcddde;
+    --muted: #b9bbbe;
+    --border: #202225;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Whitney", "Helvetica Neue", Helvetica, Arial, "Hiragino Kaku Gothic ProN", "Yu Gothic", Meiryo, sans-serif;
+    min-height: 100vh;
+  }
+  .wrap {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; padding: 24px;
+  }
+  .card {
+    width: 100%; max-width: 440px;
+    background: var(--bg-elev);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+    padding: 28px 28px 20px;
+  }
+  .header {
+    display: flex; align-items: center; gap: 12px;
+    padding-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.3);
+    margin-bottom: 18px;
+  }
+  .app-avatar {
+    width: 48px; height: 48px; border-radius: 50%;
+    background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 20px;
+    flex-shrink: 0;
+  }
+  .app-name {
+    font-size: 16px; font-weight: 600;
+  }
+  .app-sub {
+    font-size: 12px; color: var(--muted); margin-top: 2px;
+  }
+  h1 {
+    font-size: 17px; font-weight: 600;
+    margin: 0 0 12px 0;
+    color: #fff;
+  }
+  .lede {
+    font-size: 14px; color: var(--muted); margin: 0 0 16px;
+    line-height: 1.5;
+  }
+  .lede strong { color: #fff; font-weight: 600; }
+  .scopes {
+    background: var(--bg-input);
+    border-radius: 4px;
+    padding: 12px 14px;
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+  }
+  .scopes-title {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted); margin-bottom: 8px; font-weight: 700;
+  }
+  .scopes ul { margin: 0; padding-left: 18px; }
+  .scopes li { font-size: 13px; line-height: 1.8; color: var(--text); }
+  .field { margin-bottom: 14px; }
+  .field label {
+    display: block; font-size: 11px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.04em;
+    color: var(--muted); margin-bottom: 6px;
+  }
+  .field select {
+    width: 100%;
+    background: var(--bg-input);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: 14px;
+    outline: none;
+    appearance: none;
+    cursor: pointer;
+  }
+  .field select:focus { border-color: var(--accent); }
+  .actions {
+    display: flex; gap: 8px; justify-content: flex-end;
+    margin-top: 20px; padding-top: 16px;
+    border-top: 1px solid rgba(0,0,0,0.3);
+  }
+  button {
+    font: inherit; border: none; cursor: pointer;
+    padding: 10px 18px; border-radius: 3px;
+    font-weight: 500; font-size: 14px;
+    transition: background 0.15s;
+  }
+  .btn-cancel {
+    background: transparent; color: var(--text);
+  }
+  .btn-cancel:hover { text-decoration: underline; }
+  .btn-approve {
+    background: var(--accent); color: #fff;
+  }
+  .btn-approve:hover { background: var(--accent-hover); }
+  .footer {
+    font-size: 11px; color: var(--muted);
+    text-align: center; margin-top: 18px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <form class="card" method="post" action="__CONFIRM_PATH__">
+    <div class="header">
+      <div class="app-avatar">__APP_INITIAL__</div>
+      <div>
+        <div class="app-name">__APP_NAME__</div>
+        <div class="app-sub">外部アプリケーション</div>
+      </div>
+    </div>
+
+    <h1>外部のアプリケーションです</h1>
+    <p class="lede"><strong>__APP_NAME__</strong> が以下のアクセス権を要求しています。</p>
+
+    <div class="scopes">
+      <div class="scopes-title">アクセス権</div>
+      <ul>
+        __SCOPE_ITEMS__
+      </ul>
+    </div>
+
+    <div class="field">
+      <label for="user_id">承認するユーザー</label>
+      <select id="user_id" name="user_id" required>
+        __USER_OPTIONS__
+      </select>
+    </div>
+
+    __GUILD_FIELD__
+
+    <input type="hidden" name="client_id" value="__CLIENT_ID__">
+    <input type="hidden" name="redirect_uri" value="__REDIRECT_URI__">
+    <input type="hidden" name="scope" value="__SCOPE__">
+    <input type="hidden" name="state" value="__STATE__">
+    <input type="hidden" name="permissions" value="__PERMISSIONS__">
+
+    <div class="actions">
+      <button type="submit" name="action" value="deny" class="btn-cancel">キャンセル</button>
+      <button type="submit" name="action" value="approve" class="btn-approve">承認する</button>
+    </div>
+
+    <div class="footer">dapi-emu OAuth2</div>
+  </form>
+</div>
+</body>
+</html>

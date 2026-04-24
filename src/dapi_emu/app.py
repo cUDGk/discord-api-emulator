@@ -1,14 +1,16 @@
 """FastAPI application factory."""
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 
-from . import config
+from . import config, persistence
 from .gateway.server import router as gateway_router
 from .gateway.voice import router as voice_gateway_router
 from .panel.routes import router as panel_router
@@ -18,12 +20,30 @@ from .rest.channels import router as channels_router
 from .rest.gateway import router as gateway_rest_router
 from .rest.guilds import router as guilds_router
 from .rest.users import router as users_router
+from .state import WORLD
 
 log = logging.getLogger("dapi")
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="dapi-emu", version="0.1.0")
+
+    _autosave_task: asyncio.Task | None = None
+
+    @app.on_event("startup")
+    async def _startup() -> None:
+        nonlocal _autosave_task
+        if persistence.is_enabled():
+            db_path = os.environ["DAPI_DB_PATH"]
+            persistence.init_db(db_path)
+            persistence.load_world(WORLD, db_path)
+            _autosave_task = await persistence.start_autosave(WORLD, db_path)
+            log.info("persistence: loaded from %s, autosaving", db_path)
+
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        if _autosave_task is not None:
+            _autosave_task.cancel()
 
     app.add_middleware(
         CORSMiddleware,
