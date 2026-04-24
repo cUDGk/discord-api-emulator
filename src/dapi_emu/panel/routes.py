@@ -387,6 +387,39 @@ async def admin_delete_guild(guild_id: str) -> None:
     WORLD.bus.publish("GUILD_DELETE", {"id": guild_id, "unavailable": False})
 
 
+@router.put("/admin/polls/{message_id}")
+async def admin_set_poll(message_id: str, body: dict) -> dict:
+    """Attach poll state to an existing message. Used by tests."""
+    if message_id not in WORLD.messages:
+        raise HTTPException(404, "message not found")
+    WORLD.polls[message_id] = body
+    return {"ok": True, "message_id": message_id}
+
+
+@router.put("/admin/teams/{team_id}")
+async def admin_set_team(team_id: str, body: dict) -> dict:
+    """Upsert a team. Used by tests."""
+    WORLD.teams[team_id] = {"id": team_id, **body}
+    return WORLD.teams[team_id]
+
+
+@router.post("/admin/interaction-tokens")
+async def admin_register_interaction_token(body: dict) -> dict:
+    """Pre-register an interaction token. Used by slash/button tests."""
+    tok = body.get("token")
+    if not tok:
+        raise HTTPException(400, "token required")
+    WORLD.interaction_tokens[tok] = {
+        "interaction_id": body.get("interaction_id", tok),
+        "interaction_type": body.get("interaction_type", 2),
+        "application_id": body.get("application_id"),
+        "channel_id": body.get("channel_id"),
+        "guild_id": body.get("guild_id"),
+        "user_id": body.get("user_id"),
+    }
+    return {"ok": True, "token": tok}
+
+
 @router.post("/admin/reset")
 async def admin_reset() -> dict:
     """Wipe the world. Useful between tests."""

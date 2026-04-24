@@ -1,0 +1,13 @@
+{
+  "name": "dapi-emu-discordjs-example",
+  "version": "0.1.0",
+  "private": true,
+  "description": "discord.js v14 bot pointed at the dapi-emu local emulator",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}

@@ -1,12 +1,22 @@
-"""Discord-compatible Gateway WebSocket endpoint."""
+"""Discord-compatible Gateway WebSocket endpoint.
+
+Supports:
+- json encoding (always)
+- zlib-stream compression (?compress=zlib-stream) — required by discord.js default
+- op 2 IDENTIFY / op 1 HEARTBEAT / op 6 RESUME (replays missed dispatches)
+- per-bot event isolation via _should_deliver()
+"""
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
-from typing import Any
+import time
+import zlib
+from collections import deque
+from typing import Any, Deque
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 
 from .. import config
 from ..snowflake import generate as new_snowflake
@@ -29,29 +39,71 @@ OP_INVALID_SESSION = 9
 OP_HELLO = 10
 OP_HEARTBEAT_ACK = 11
 
+# How many past dispatches to retain per session for replay on RESUME.
+RESUME_HISTORY_SIZE = 500
+# How long a dropped session is resumable (seconds).
+RESUME_TTL_SEC = 180
+
 
 class Session:
-    def __init__(self, ws: WebSocket) -> None:
+    def __init__(self, ws: WebSocket, compress: str | None = None) -> None:
         self.ws = ws
-        self.session_id = new_snowflake()
-        self.seq = 0
+        self.session_id: str = new_snowflake()
+        self.seq: int = 0
         self.user_id: str | None = None
+        self.token: str | None = None
         self.intents: int = 0
         self.queue: asyncio.Queue[tuple[str, dict[str, Any]]] | None = None
-        self.heartbeat_ok = True
         self.closed = False
+
+        # zlib-stream: shared deflate context across the whole connection.
+        self.compress = compress  # None or "zlib-stream"
+        self._compressor = (
+            zlib.compressobj(level=6, wbits=15) if compress == "zlib-stream" else None
+        )
+
+        # Ring buffer of (seq, event_name, data) for RESUME replay.
+        self.dispatch_history: Deque[tuple[int, str, dict[str, Any]]] = deque(
+            maxlen=RESUME_HISTORY_SIZE,
+        )
 
     async def send(self, payload: dict[str, Any]) -> None:
         if self.closed:
             return
+        text = json.dumps(payload, separators=(",", ":"))
         try:
-            await self.ws.send_text(json.dumps(payload))
+            if self._compressor:
+                data = text.encode("utf-8")
+                # Z_SYNC_FLUSH emits the 00 00 ff ff marker the client looks for.
+                compressed = (
+                    self._compressor.compress(data)
+                    + self._compressor.flush(zlib.Z_SYNC_FLUSH)
+                )
+                await self.ws.send_bytes(compressed)
+            else:
+                await self.ws.send_text(text)
         except Exception:
             self.closed = True
 
     async def dispatch(self, event_name: str, data: dict[str, Any]) -> None:
         self.seq += 1
-        await self.send({"op": OP_DISPATCH, "t": event_name, "s": self.seq, "d": data})
+        self.dispatch_history.append((self.seq, event_name, data))
+        await self.send(
+            {"op": OP_DISPATCH, "t": event_name, "s": self.seq, "d": data}
+        )
+
+    def make_resumable(self) -> None:
+        """Snapshot this session so a RESUME can pick it up. Called on disconnect."""
+        if self.user_id is None:
+            return
+        WORLD.resumable_sessions[self.session_id] = {
+            "user_id": self.user_id,
+            "token": self.token,
+            "intents": self.intents,
+            "seq": self.seq,
+            "history": list(self.dispatch_history),
+            "expires_at": time.time() + RESUME_TTL_SEC,
+        }
 
 
 # Privileged intent bits
@@ -71,7 +123,6 @@ def _strip_message_content(msg: dict[str, Any]) -> dict[str, Any]:
     return m
 
 
-# Events that don't belong to a specific guild/channel — always deliver.
 _BROADCAST_EVENTS = {
     "READY", "RESUMED", "USER_UPDATE", "APPLICATION_COMMAND_PERMISSIONS_UPDATE",
 }
@@ -88,11 +139,7 @@ def _resolve_guild_id(data: dict[str, Any]) -> str | None:
 
 
 def _should_deliver(session: "Session", event_name: str, data: dict[str, Any]) -> bool:
-    """Return True iff this bot should receive this event.
-
-    Isolates bots: each bot only sees events from guilds it is a member of,
-    DMs it participates in, or interactions targeted at its application.
-    """
+    """Return True iff this bot should receive this event."""
     user_id = session.user_id
     if user_id is None:
         return False
@@ -100,7 +147,6 @@ def _should_deliver(session: "Session", event_name: str, data: dict[str, Any]) -
     if event_name in _BROADCAST_EVENTS:
         return True
 
-    # Interactions: only the owning application receives them
     if event_name == "INTERACTION_CREATE":
         app_id = data.get("application_id")
         if not app_id:
@@ -108,37 +154,54 @@ def _should_deliver(session: "Session", event_name: str, data: dict[str, Any]) -
         app = WORLD.applications.get(app_id)
         return bool(app and app.bot_id == user_id)
 
-    # Guild-scoped events
     guild_id = _resolve_guild_id(data)
     if guild_id is not None:
         return (user_id, guild_id) in WORLD.members
 
-    # DM / group DM by channel recipients
     channel_id = data.get("channel_id") or data.get("id")
     if channel_id and channel_id in WORLD.channels:
         ch = WORLD.channels[channel_id]
         if ch.type in (1, 3):
             return user_id in ch.recipients
 
-    # Fallback: if the payload carries a user_id, only deliver to self
     if "user_id" in data:
         return data["user_id"] == user_id
 
-    # Otherwise don't leak
     return False
 
 
-@router.websocket("/gateway")
-async def gateway_ws(ws: WebSocket) -> None:
-    await ws.accept()
-    session = Session(ws)
-    log.info("gateway: new connection %s", session.session_id)
+def _gc_resumables() -> None:
+    """Evict expired resumable sessions."""
+    now = time.time()
+    for sid in list(WORLD.resumable_sessions.keys()):
+        if WORLD.resumable_sessions[sid]["expires_at"] < now:
+            WORLD.resumable_sessions.pop(sid, None)
 
-    # Send Hello
-    await session.send({
-        "op": OP_HELLO,
-        "d": {"heartbeat_interval": config.HEARTBEAT_INTERVAL_MS},
-    })
+
+@router.websocket("/gateway")
+async def gateway_ws(
+    ws: WebSocket,
+    v: str | None = Query(default=None),
+    encoding: str | None = Query(default="json"),
+    compress: str | None = Query(default=None),
+) -> None:
+    # ETF is not supported; force json.
+    if encoding and encoding != "json":
+        await ws.accept()
+        await ws.close(code=4000)
+        return
+
+    await ws.accept()
+    session = Session(ws, compress=compress if compress == "zlib-stream" else None)
+    log.info(
+        "gateway: new connection session=%s compress=%s",
+        session.session_id, session.compress,
+    )
+
+    # Hello
+    await session.send(
+        {"op": OP_HELLO, "d": {"heartbeat_interval": config.HEARTBEAT_INTERVAL_MS}}
+    )
 
     sender_task: asyncio.Task | None = None
 
@@ -157,6 +220,11 @@ async def gateway_ws(ws: WebSocket) -> None:
                 if author_id != session.user_id and session.user_id not in mentioned_ids:
                     data = _strip_message_content(data)
             await session.dispatch(event_name, data)
+
+    async def start_event_pump() -> None:
+        nonlocal sender_task
+        session.queue = await WORLD.bus.subscribe()
+        sender_task = asyncio.create_task(event_sender())
 
     try:
         while True:
@@ -178,20 +246,20 @@ async def gateway_ws(ws: WebSocket) -> None:
                     token_raw = token_raw[4:]
                 user_id = WORLD.bot_tokens.get(token_raw)
                 if not user_id:
-                    await ws.close(code=4004)  # Authentication failed
+                    await ws.close(code=4004)
                     return
                 session.user_id = user_id
+                session.token = token_raw
                 session.intents = int(d.get("intents", 0))
 
-                # Subscribe to event bus
-                session.queue = await WORLD.bus.subscribe()
-                sender_task = asyncio.create_task(event_sender())
+                await start_event_pump()
 
-                # Find application
-                app = next((a for a in WORLD.applications.values() if a.bot_id == user_id), None)
+                app = next(
+                    (a for a in WORLD.applications.values() if a.bot_id == user_id),
+                    None,
+                )
                 user = WORLD.users[user_id]
 
-                # READY payload
                 guilds_for_bot = [
                     {"id": g.id, "unavailable": True}
                     for g in WORLD.guilds.values()
@@ -220,19 +288,46 @@ async def gateway_ws(ws: WebSocket) -> None:
                 }
                 await session.dispatch("READY", ready_d)
 
-                # Flush full GUILD_CREATE for each guild
                 for g in list(WORLD.guilds.values()):
                     if (user_id, g.id) in WORLD.members:
                         await session.dispatch("GUILD_CREATE", g.to_dict(WORLD, full=True))
 
-            elif op == OP_HEARTBEAT:
-                await session.send({"op": OP_HEARTBEAT_ACK})
-
             elif op == OP_RESUME:
-                # Naive: treat as new identify via Invalid Session
-                await session.send({"op": OP_INVALID_SESSION, "d": False})
-                await ws.close(code=4009)
-                return
+                d = msg.get("d") or {}
+                req_session_id = d.get("session_id")
+                req_token = d.get("token", "")
+                if req_token.startswith("Bot "):
+                    req_token = req_token[4:]
+                req_seq = int(d.get("seq") or 0)
+
+                _gc_resumables()
+                saved = WORLD.resumable_sessions.get(req_session_id)
+                if not saved or saved["token"] != req_token:
+                    # Not resumable — tell client to re-identify.
+                    await session.send({"op": OP_INVALID_SESSION, "d": False})
+                    await ws.close(code=4009)
+                    return
+
+                # Adopt saved identity.
+                session.session_id = req_session_id
+                session.user_id = saved["user_id"]
+                session.token = saved["token"]
+                session.intents = saved["intents"]
+                session.seq = saved["seq"]
+                session.dispatch_history = deque(saved["history"], maxlen=RESUME_HISTORY_SIZE)
+                WORLD.resumable_sessions.pop(req_session_id, None)
+
+                await start_event_pump()
+
+                # Replay dispatches after req_seq.
+                for seq, ev_name, ev_data in list(session.dispatch_history):
+                    if seq > req_seq:
+                        await session.send(
+                            {"op": OP_DISPATCH, "t": ev_name, "s": seq, "d": ev_data}
+                        )
+
+                # RESUMED marker (no data).
+                await session.dispatch("RESUMED", {})
 
             elif op == OP_PRESENCE_UPDATE:
                 d = msg.get("d") or {}
@@ -245,13 +340,33 @@ async def gateway_ws(ws: WebSocket) -> None:
                         "guild_id": None,
                     })
 
+            elif op == OP_VOICE_STATE_UPDATE:
+                d = msg.get("d") or {}
+                if session.user_id and d.get("guild_id"):
+                    vs = {
+                        "guild_id": d["guild_id"],
+                        "channel_id": d.get("channel_id"),
+                        "user_id": session.user_id,
+                        "session_id": session.session_id,
+                        "deaf": False, "mute": False,
+                        "self_deaf": d.get("self_deaf", False),
+                        "self_mute": d.get("self_mute", False),
+                        "self_video": False, "suppress": False,
+                        "request_to_speak_timestamp": None,
+                    }
+                    WORLD.voice_states[(d["guild_id"], session.user_id)] = vs
+                    WORLD.bus.publish("VOICE_STATE_UPDATE", vs)
+                    # VOICE_SERVER_UPDATE (endpoint for WebRTC discovery)
+                    WORLD.bus.publish("VOICE_SERVER_UPDATE", {
+                        "token": f"voice.{session.session_id}",
+                        "guild_id": d["guild_id"],
+                        "endpoint": config.GATEWAY_WS_URL.replace("ws://", "").replace("wss://", "").split("/")[0] + "/voice",
+                    })
+
             elif op == OP_REQUEST_GUILD_MEMBERS:
                 d = msg.get("d") or {}
                 guild_id = d.get("guild_id")
-                if isinstance(guild_id, list):
-                    guild_ids = guild_id
-                else:
-                    guild_ids = [guild_id]
+                guild_ids = guild_id if isinstance(guild_id, list) else [guild_id]
                 for gid in guild_ids:
                     g = WORLD.guilds.get(gid)
                     if not g:
@@ -284,3 +399,5 @@ async def gateway_ws(ws: WebSocket) -> None:
             sender_task.cancel()
         if session.queue is not None:
             await WORLD.bus.unsubscribe(session.queue)
+        # Save for RESUME.
+        session.make_resumable()

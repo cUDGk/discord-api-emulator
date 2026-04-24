@@ -3,10 +3,24 @@ can observe changes via the event bus."""
 from __future__ import annotations
 
 import asyncio
+import base64
+import secrets
 from dataclasses import dataclass, field
 from typing import Any
 
 from . import snowflake
+
+
+def _discord_like_token(user_id: str) -> str:
+    """Mint a token that matches Discord's `<b64(user_id)>.<b64(ts)>.<hmac>` shape.
+
+    discord.js validates the shape on the client side before it even hits the
+    REST API; a simpler scheme (e.g. "bot.id.rand") trips TokenInvalid.
+    """
+    p1 = base64.urlsafe_b64encode(user_id.encode("ascii")).decode("ascii").rstrip("=")
+    p2 = base64.urlsafe_b64encode(secrets.token_bytes(5)).decode("ascii").rstrip("=")
+    p3 = secrets.token_urlsafe(20)[:27].ljust(27, "A")
+    return f"{p1}.{p2}.{p3}"
 
 
 # --- Domain objects -------------------------------------------------------
@@ -328,6 +342,10 @@ class World:
         self.interaction_tokens: dict[str, dict[str, Any]] = {}  # token -> {interaction_id, app_id, channel_id, user_id, original_msg_id?}
         self.channel_overwrites: dict[str, list[dict[str, Any]]] = {}  # channel_id -> overwrites
 
+        # Resumable gateway sessions (id -> saved state). Used when a client
+        # drops the WS and comes back with op 6 Resume.
+        self.resumable_sessions: dict[str, dict[str, Any]] = {}
+
         self.bus = EventBus()
 
     # User helpers
@@ -339,7 +357,7 @@ class World:
 
     def register_bot(self, user: User, token: str | None = None) -> tuple[Application, str]:
         app_id = snowflake.generate()
-        token = token or f"bot.{user.id}.{snowflake.generate()}"
+        token = token or _discord_like_token(user.id)
         app = Application(id=app_id, name=user.username, owner_id=user.id, bot_id=user.id)
         self.applications[app_id] = app
         self.bot_tokens[token] = user.id

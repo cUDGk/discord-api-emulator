@@ -10,6 +10,7 @@ from starlette.responses import JSONResponse
 
 from . import config
 from .gateway.server import router as gateway_router
+from .gateway.voice import router as voice_gateway_router
 from .panel.routes import router as panel_router
 from .ratelimit import RateLimitHeadersMiddleware
 from .rest.applications import router as applications_router
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
 
     # Gateway WS (top-level, not /api)
     app.include_router(gateway_router)
+    app.include_router(voice_gateway_router)
 
     # Panel + admin (top-level)
     app.include_router(panel_router)
@@ -64,8 +66,11 @@ def create_app() -> FastAPI:
 
 def _mount_phase2plus(app: FastAPI, prefix: str) -> None:
     """Mount optional routers if their modules exist (Phase 2+)."""
+    # webhooks must mount before interactions — they share the
+    # `/webhooks/{id}/{token}` path shape. The webhooks router has a built-in
+    # fallback to interaction tokens so both flows are handled.
     module_names = [
-        "interactions", "threads", "webhooks", "dm", "emojis", "stickers",
+        "webhooks", "interactions", "threads", "dm", "emojis", "stickers",
         "invites", "bans", "audit_log", "voice", "scheduled_events",
         "stage_instances", "automod", "polls", "oauth2", "cdn", "entitlements",
         "skus", "teams", "pins",

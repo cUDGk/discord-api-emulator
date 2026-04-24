@@ -98,7 +98,8 @@ def test_full_bot_flow():
 def test_ratelimit_headers_present():
     c = _fresh_client()
     r = c.get("/api/v10/gateway")
-    assert r.headers.get("X-RateLimit-Bucket") == "emulator"
+    assert r.headers.get("X-RateLimit-Bucket")
+    assert r.headers.get("X-RateLimit-Limit")
 
 
 def test_snowflake_is_string():

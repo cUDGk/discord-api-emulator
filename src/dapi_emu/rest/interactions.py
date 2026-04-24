@@ -441,6 +441,11 @@ async def create_interaction_response(
     data = body.data or {}
     channel_id = ctx.get("channel_id")
     app_id = ctx.get("application_id")
+    # Messages sent by a bot interaction need a real user id as author (the bot
+    # behind the application), not the raw application id which isn't in
+    # WORLD.users and would KeyError in Message.to_dict.
+    _app = WORLD.applications.get(app_id) if app_id else None
+    bot_author_id = (_app.bot_id if _app else None) or ctx.get("user_id", "")
     msg_payload: dict[str, Any] | None = None
 
     callback_type = body.type
@@ -458,7 +463,7 @@ async def create_interaction_response(
                 flags |= 128  # LOADING
             msg = WORLD.create_message(
                 channel_id=channel_id,
-                author_id=app_id or ctx.get("user_id", ""),
+                author_id=bot_author_id,
                 content=content,
                 embeds=data.get("embeds") or [],
                 components=data.get("components") or [],
@@ -616,9 +621,11 @@ async def create_followup_message(
             detail={"code": 10003, "message": "Unknown Channel"},
         )
     embeds = body.get("embeds") or ([body["embed"]] if body.get("embed") else [])
+    _app = WORLD.applications.get(application_id)
+    author_id = _app.bot_id if _app else application_id
     msg = WORLD.create_message(
         channel_id=channel_id,
-        author_id=application_id,
+        author_id=author_id,
         content=body.get("content") or "",
         embeds=embeds,
         components=body.get("components") or [],

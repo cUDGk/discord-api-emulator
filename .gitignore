@@ -14,3 +14,7 @@ logs/
 dist/
 build/
 .DS_Store
+node_modules/
+examples/discord-js/package-lock.json
+examples/.env
+.playwright-mcp/
