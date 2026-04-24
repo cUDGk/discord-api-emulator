@@ -1,0 +1,1234 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>dapi-emu — client</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg-darkest: #1e1f22;
+    --bg-dark: #2b2d31;
+    --bg-mid: #313338;
+    --bg-light: #383a40;
+    --bg-hover: #35373c;
+    --bg-active: #404249;
+    --text-normal: #dbdee1;
+    --text-muted: #949ba4;
+    --text-dim: #80848e;
+    --text-bright: #ffffff;
+    --accent: #5865f2;
+    --accent-hover: #4752c4;
+    --green: #23a559;
+    --yellow: #f0b232;
+    --red: #f23f43;
+    --border: #1f2023;
+    --divider: #3f4147;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0; padding: 0; height: 100vh; width: 100vw; overflow: hidden;
+    background: var(--bg-mid);
+    color: var(--text-normal);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.4;
+  }
+
+  button { font-family: inherit; cursor: pointer; border: 0; background: none; color: inherit; }
+  input, textarea { font-family: inherit; }
+
+  /* ====================== Top bar ====================== */
+  .topbar {
+    height: 30px;
+    background: var(--bg-darkest);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 12px;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border);
+    gap: 14px;
+    flex-shrink: 0;
+  }
+  .topbar .brand {
+    color: var(--text-bright);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .topbar .user-select-wrap {
+    display: flex; align-items: center; gap: 6px; margin-left: auto;
+  }
+  .topbar select, .topbar button {
+    background: var(--bg-light);
+    color: var(--text-normal);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 12px;
+    height: 22px;
+  }
+  .topbar select:hover, .topbar button:hover { background: var(--bg-active); }
+  .topbar .reload-btn {
+    background: var(--accent);
+    color: var(--text-bright);
+    border-color: transparent;
+  }
+  .topbar .reload-btn:hover { background: var(--accent-hover); }
+
+  /* ====================== App shell ====================== */
+  .app {
+    display: flex;
+    height: calc(100vh - 30px);
+    width: 100vw;
+  }
+
+  /* ====================== Guild sidebar (leftmost, 72px) ====================== */
+  .guild-bar {
+    width: 72px;
+    background: var(--bg-darkest);
+    padding: 12px 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    overflow-y: auto;
+    flex-shrink: 0;
+  }
+  .guild-bar::-webkit-scrollbar { width: 0; }
+
+  .guild-icon-wrap {
+    position: relative;
+    width: 48px;
+    height: 48px;
+  }
+  .guild-icon-wrap .pill {
+    position: absolute;
+    left: -12px;
+    top: 50%;
+    width: 4px;
+    height: 8px;
+    background: transparent;
+    border-radius: 0 4px 4px 0;
+    transform: translateY(-50%);
+    transition: height 0.15s ease, background 0.15s ease;
+  }
+  .guild-icon-wrap:hover .pill { background: var(--text-bright); height: 20px; }
+  .guild-icon-wrap.active .pill { background: var(--text-bright); height: 40px; }
+
+  .guild-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--bg-dark);
+    color: var(--text-normal);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 600;
+    font-size: 16px;
+    cursor: pointer;
+    transition: border-radius 0.15s ease, background 0.15s ease, color 0.15s ease;
+    user-select: none;
+    overflow: hidden;
+    text-align: center;
+    padding: 2px;
+  }
+  .guild-icon:hover {
+    border-radius: 16px;
+    background: var(--accent);
+    color: var(--text-bright);
+  }
+  .guild-icon-wrap.active .guild-icon {
+    border-radius: 16px;
+    background: var(--accent);
+    color: var(--text-bright);
+  }
+  .guild-icon.home { background: var(--bg-dark); color: var(--accent); font-size: 20px; }
+  .guild-icon.home:hover { background: var(--accent); color: var(--text-bright); }
+  .guild-icon.add { color: var(--green); font-size: 24px; background: var(--bg-dark); }
+  .guild-icon.add:hover { background: var(--green); color: var(--text-bright); }
+
+  .guild-divider {
+    width: 32px;
+    height: 2px;
+    background: var(--divider);
+    border-radius: 1px;
+    margin: 4px 0;
+  }
+
+  /* ====================== Channel sidebar (240px) ====================== */
+  .channel-bar {
+    width: 240px;
+    background: var(--bg-dark);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+  }
+
+  .channel-bar .header {
+    height: 48px;
+    padding: 0 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--text-bright);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+    flex-shrink: 0;
+  }
+  .channel-bar .header .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .channel-bar .header .gear {
+    font-size: 18px;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+  .channel-bar .header .gear:hover { color: var(--text-bright); }
+
+  .channel-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px 8px 16px 8px;
+  }
+  .channel-list::-webkit-scrollbar { width: 8px; }
+  .channel-list::-webkit-scrollbar-thumb { background: var(--bg-darkest); border-radius: 4px; }
+
+  .category {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 16px 4px 4px 4px;
+    color: var(--text-dim);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    cursor: pointer;
+    user-select: none;
+  }
+  .category:hover { color: var(--text-normal); }
+  .category .chev { width: 10px; display: inline-block; font-size: 10px; transition: transform 0.15s; }
+  .category.collapsed .chev { transform: rotate(-90deg); }
+  .category .cat-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .category .cat-add {
+    font-size: 16px;
+    color: var(--text-dim);
+    padding: 0 4px;
+    line-height: 1;
+  }
+  .category .cat-add:hover { color: var(--text-bright); }
+
+  .channel {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    margin: 1px 0;
+    border-radius: 4px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 15px;
+    font-weight: 500;
+  }
+  .channel:hover { background: var(--bg-hover); color: var(--text-normal); }
+  .channel.active { background: var(--bg-active); color: var(--text-bright); }
+  .channel .sym { width: 20px; text-align: center; font-weight: 400; color: var(--text-dim); }
+  .channel .ch-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .uncat-list { padding-top: 4px; }
+
+  .add-ch-row {
+    padding: 4px 4px;
+  }
+  .add-ch-row button {
+    width: 100%;
+    padding: 6px;
+    border-radius: 4px;
+    background: var(--bg-darkest);
+    color: var(--text-muted);
+    font-size: 12px;
+    text-align: left;
+    padding-left: 12px;
+  }
+  .add-ch-row button:hover { color: var(--text-bright); background: var(--bg-light); }
+
+  /* User panel (bottom of channel bar) */
+  .user-panel {
+    height: 52px;
+    background: #232428;
+    display: flex;
+    align-items: center;
+    padding: 0 8px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .user-panel .avatar {
+    position: relative;
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+  }
+  .avatar-circle {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--text-bright);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    user-select: none;
+  }
+  .avatar-circle.size-40 { width: 40px; height: 40px; font-size: 16px; }
+  .avatar-circle.size-24 { width: 24px; height: 24px; font-size: 10px; }
+
+  .status-dot {
+    position: absolute;
+    bottom: -2px;
+    right: -2px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--green);
+    border: 3px solid #232428;
+  }
+  .status-dot.bot { background: var(--accent); }
+
+  .user-panel .info { flex: 1; overflow: hidden; }
+  .user-panel .info .name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-bright);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .user-panel .info .sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ====================== Main column ====================== */
+  .main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg-mid);
+    min-width: 0;
+  }
+
+  .channel-header {
+    height: 48px;
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(0,0,0,0.2);
+    display: flex;
+    align-items: center;
+    padding: 0 16px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .channel-header .sym { color: var(--text-dim); font-size: 22px; font-weight: 400; }
+  .channel-header .ch-name { font-weight: 600; color: var(--text-bright); font-size: 16px; }
+  .channel-header .divider {
+    width: 1px; height: 24px; background: var(--divider); margin: 0 6px;
+  }
+  .channel-header .topic {
+    color: var(--text-muted);
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+  }
+
+  /* Messages */
+  .messages-wrap {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column-reverse;
+  }
+  .messages-wrap::-webkit-scrollbar { width: 14px; }
+  .messages-wrap::-webkit-scrollbar-thumb { background: var(--bg-darkest); border: 4px solid var(--bg-mid); border-radius: 8px; }
+  .messages-wrap::-webkit-scrollbar-track { background: transparent; }
+
+  .messages {
+    padding: 16px 0 24px 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .empty-channel {
+    padding: 24px;
+    color: var(--text-muted);
+    font-size: 14px;
+  }
+  .empty-channel .big {
+    font-size: 32px;
+    color: var(--text-bright);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  .msg {
+    padding: 2px 48px 2px 72px;
+    position: relative;
+    min-height: 22px;
+  }
+  .msg:hover { background: rgba(4,4,5,0.07); }
+  .msg.grouped { margin-top: 0; }
+  .msg.first { margin-top: 17px; }
+
+  .msg .avatar {
+    position: absolute;
+    left: 16px;
+    top: 2px;
+    width: 40px;
+    height: 40px;
+  }
+  .msg.grouped .avatar { display: none; }
+
+  .msg .head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    line-height: 1.375;
+  }
+  .msg .author {
+    font-weight: 500;
+    color: var(--text-bright);
+    font-size: 15px;
+  }
+  .msg .author.bot {
+    color: var(--text-bright);
+  }
+  .msg .bot-tag {
+    background: var(--accent);
+    color: var(--text-bright);
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 4px;
+    border-radius: 3px;
+    margin-left: 2px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .msg .ts { color: var(--text-dim); font-size: 12px; }
+  .msg .content {
+    color: var(--text-normal);
+    font-size: 15px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.375;
+  }
+  .msg.grouped .ts-hover {
+    position: absolute;
+    left: 0;
+    width: 56px;
+    text-align: right;
+    padding-right: 8px;
+    color: var(--text-dim);
+    font-size: 11px;
+    line-height: 22px;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .msg.grouped:hover .ts-hover { opacity: 1; }
+
+  /* Input */
+  .input-wrap {
+    padding: 0 16px 24px 16px;
+    flex-shrink: 0;
+  }
+  .input-box {
+    background: var(--bg-light);
+    border-radius: 8px;
+    padding: 11px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .input-box textarea {
+    flex: 1;
+    background: transparent;
+    border: 0;
+    outline: none;
+    color: var(--text-normal);
+    font-size: 15px;
+    resize: none;
+    line-height: 1.375;
+    max-height: 200px;
+    font-family: inherit;
+  }
+  .input-box textarea::placeholder { color: var(--text-dim); }
+  .input-box .send {
+    color: var(--text-muted);
+    font-size: 18px;
+    padding: 4px;
+  }
+  .input-box .send:hover { color: var(--accent); }
+  .input-box.disabled textarea { cursor: not-allowed; opacity: 0.5; }
+
+  /* ====================== Member list ====================== */
+  .member-bar {
+    width: 240px;
+    background: var(--bg-dark);
+    overflow-y: auto;
+    padding: 20px 0;
+    flex-shrink: 0;
+  }
+  .member-bar::-webkit-scrollbar { width: 8px; }
+  .member-bar::-webkit-scrollbar-thumb { background: var(--bg-darkest); border-radius: 4px; }
+
+  .member-group-title {
+    padding: 16px 16px 4px 16px;
+    color: var(--text-dim);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+  .member-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 6px 8px 6px 16px;
+    margin: 1px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .member-row:hover { background: var(--bg-hover); }
+  .member-row .avatar { position: relative; width: 32px; height: 32px; flex-shrink: 0; }
+  .member-row .status-dot { border-color: var(--bg-dark); }
+  .member-row .name {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .member-row.owner .name { color: var(--text-bright); }
+
+  /* ====================== Gateway log drawer ====================== */
+  .gw-drawer {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: var(--bg-darkest);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.24);
+    width: 380px;
+    max-height: 60vh;
+    display: flex;
+    flex-direction: column;
+    z-index: 100;
+    overflow: hidden;
+  }
+  .gw-drawer .gw-head {
+    padding: 8px 12px;
+    background: var(--bg-dark);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-bright);
+  }
+  .gw-drawer .gw-head .gw-status {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text-muted);
+    margin-left: 8px;
+  }
+  .gw-drawer .gw-head .gw-status.on { color: var(--green); }
+  .gw-drawer .gw-head .gw-status.off { color: var(--red); }
+  .gw-drawer .gw-head button {
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 0 4px;
+  }
+  .gw-drawer .gw-head button:hover { color: var(--text-bright); }
+  .gw-drawer .gw-body {
+    padding: 8px;
+    overflow-y: auto;
+    font-family: Consolas, Menlo, monospace;
+    font-size: 11px;
+    color: var(--text-normal);
+    flex: 1;
+  }
+  .gw-drawer .gw-body::-webkit-scrollbar { width: 8px; }
+  .gw-drawer .gw-body::-webkit-scrollbar-thumb { background: var(--bg-dark); border-radius: 4px; }
+  .gw-event {
+    border-bottom: 1px solid var(--border);
+    padding: 4px 0;
+    word-break: break-all;
+  }
+  .gw-event .name { color: var(--accent); font-weight: 600; }
+  .gw-event .time { color: var(--text-dim); margin-right: 6px; }
+
+  .gw-toggle {
+    position: fixed;
+    right: 16px;
+    bottom: 16px;
+    background: var(--bg-darkest);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+    cursor: pointer;
+    z-index: 99;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.24);
+  }
+  .gw-toggle:hover { color: var(--text-bright); }
+
+  /* Small svg icons */
+  .icon-hash::before { content: "#"; font-weight: 500; }
+  .icon-voice::before { content: "\1F50A"; font-size: 13px; }
+
+  .muted { color: var(--text-muted); }
+
+  /* Avatar color helpers — deterministic per id */
+  .ac-0 { background: #5865f2; }
+  .ac-1 { background: #eb459e; }
+  .ac-2 { background: #23a559; }
+  .ac-3 { background: #f0b232; }
+  .ac-4 { background: #ed4245; }
+  .ac-5 { background: #1abc9c; }
+  .ac-6 { background: #9b59b6; }
+  .ac-7 { background: #e67e22; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">dapi-emu client</span>
+  <span class="muted">テスト用クライアント</span>
+  <div class="user-select-wrap">
+    <span class="muted">現在のユーザー:</span>
+    <select id="current-user"></select>
+    <button class="reload-btn" id="reload-btn" title="Reload state">Reload</button>
+  </div>
+</div>
+
+<div class="app">
+  <!-- Guild sidebar -->
+  <aside class="guild-bar" id="guild-bar"></aside>
+
+  <!-- Channel sidebar -->
+  <aside class="channel-bar">
+    <div class="header">
+      <span class="name" id="guild-name">No Guild</span>
+      <span class="gear" title="Settings">&#9881;</span>
+    </div>
+    <div class="channel-list" id="channel-list"></div>
+    <div class="user-panel" id="user-panel"></div>
+  </aside>
+
+  <!-- Main -->
+  <main class="main">
+    <div class="channel-header" id="channel-header">
+      <span class="sym">#</span>
+      <span class="ch-name" id="active-channel-name">—</span>
+      <span class="divider"></span>
+      <span class="topic" id="active-channel-topic">チャンネルを選択してください</span>
+    </div>
+    <div class="messages-wrap" id="messages-wrap">
+      <div class="messages" id="messages"></div>
+    </div>
+    <div class="input-wrap">
+      <div class="input-box" id="input-box">
+        <textarea id="message-input" rows="1" placeholder="チャンネルを選択してください"></textarea>
+        <button class="send" id="send-btn" title="送信">&#10148;</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Member list -->
+  <aside class="member-bar" id="member-bar"></aside>
+</div>
+
+<!-- Gateway log drawer -->
+<button class="gw-toggle" id="gw-toggle">Gateway ログ</button>
+<div class="gw-drawer" id="gw-drawer" style="display: none;">
+  <div class="gw-head">
+    <span>Gateway <span class="gw-status off" id="gw-status">disconnected</span></span>
+    <span>
+      <button id="gw-connect" title="(dis)connect">&#8634;</button>
+      <button id="gw-clear" title="clear">&times;</button>
+      <button id="gw-close" title="close">&#9660;</button>
+    </span>
+  </div>
+  <div class="gw-body" id="gw-body"></div>
+</div>
+
+<script>
+"use strict";
+
+// ---------- helpers ----------
+const $ = id => document.getElementById(id);
+const ESC = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+
+async function api(method, path, body, headers) {
+  const opts = {
+    method,
+    headers: { "content-type": "application/json", ...(headers || {}) },
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (!r.ok) {
+    const txt = await r.text().catch(() => "");
+    console.warn(method, path, r.status, txt);
+    return null;
+  }
+  if (r.status === 204) return {};
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) return null;
+  return r.json();
+}
+
+function colorClass(id) {
+  const s = String(id || "");
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return "ac-" + (h % 8);
+}
+
+function initial(name) {
+  if (!name) return "?";
+  const chars = [...name.trim()];
+  return (chars[0] || "?").toUpperCase();
+}
+
+function avatarHTML(user, { size = 32, showStatus = true } = {}) {
+  if (!user) return '<div class="avatar-circle">?</div>';
+  const sizeCls = size === 40 ? "size-40" : size === 24 ? "size-24" : "";
+  const statusCls = user.bot ? "bot" : "";
+  return `<div class="avatar" style="width:${size}px;height:${size}px">
+    <div class="avatar-circle ${sizeCls} ${colorClass(user.id)}">${ESC(initial(user.username))}</div>
+    ${showStatus ? `<div class="status-dot ${statusCls}"></div>` : ""}
+  </div>`;
+}
+
+function fmtTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const yday = new Date(now); yday.setDate(now.getDate() - 1);
+  const isYday = d.toDateString() === yday.toDateString();
+  const hm = d.toTimeString().slice(0, 5);
+  if (sameDay) return `今日 ${hm}`;
+  if (isYday) return `昨日 ${hm}`;
+  const m = (d.getMonth() + 1).toString().padStart(2, "0");
+  const day = d.getDate().toString().padStart(2, "0");
+  return `${d.getFullYear()}/${m}/${day} ${hm}`;
+}
+
+// ---------- state ----------
+const STATE = {
+  raw: null,               // last /admin/state payload
+  currentUserId: null,     // selected actor
+  activeGuildId: null,
+  activeChannelId: null,
+  messages: [],            // messages for active channel (oldest -> newest)
+  collapsedCats: new Set(),
+};
+
+function firstBotToken() {
+  const t = STATE.raw?.bot_tokens || [];
+  return t.length ? t[0].token : null;
+}
+
+function authHeaders() {
+  const tok = firstBotToken();
+  return tok ? { Authorization: `Bot ${tok}` } : {};
+}
+
+// ---------- API calls ----------
+async function fetchState() {
+  const s = await api("GET", "/admin/state");
+  if (!s) return;
+  STATE.raw = s;
+
+  // Maintain current user selection
+  const users = s.users || [];
+  if (!STATE.currentUserId || !users.find(u => u.id === STATE.currentUserId)) {
+    // Prefer non-bot first
+    const nonbot = users.find(u => !u.bot);
+    STATE.currentUserId = (nonbot || users[0] || {}).id || null;
+  }
+
+  // Maintain active guild
+  const guilds = s.guilds || [];
+  if (!STATE.activeGuildId || !guilds.find(g => g.id === STATE.activeGuildId)) {
+    STATE.activeGuildId = (guilds[0] || {}).id || null;
+  }
+
+  // Maintain active channel (must belong to active guild and be text-ish)
+  const guild = guilds.find(g => g.id === STATE.activeGuildId);
+  const channels = guild ? guild.channels.filter(c => c.type === 0 || c.type === 5 || c.type === 15) : [];
+  if (!STATE.activeChannelId || !channels.find(c => c.id === STATE.activeChannelId)) {
+    STATE.activeChannelId = (channels[0] || {}).id || null;
+  }
+}
+
+async function fetchMessages() {
+  if (!STATE.activeChannelId) { STATE.messages = []; return; }
+  // Prefer unauthenticated admin endpoint (returns oldest-first) so the UI
+  // works even without a bot registered. If that fails, fall back to the
+  // real Discord REST endpoint (requires Bot auth).
+  let data = await api("GET", `/admin/channels/${STATE.activeChannelId}/messages?limit=100`);
+  if (Array.isArray(data)) { STATE.messages = data; return; }
+  const tok = firstBotToken();
+  if (!tok) { STATE.messages = []; return; }
+  data = await api("GET", `/api/v10/channels/${STATE.activeChannelId}/messages?limit=100`, undefined, authHeaders());
+  if (!Array.isArray(data)) { STATE.messages = []; return; }
+  STATE.messages = data.slice().reverse(); // REST returns newest-first
+}
+
+// ---------- rendering ----------
+function renderUserSelect() {
+  const users = STATE.raw?.users || [];
+  const sel = $("current-user");
+  sel.innerHTML = users.map(u =>
+    `<option value="${ESC(u.id)}" ${u.id === STATE.currentUserId ? "selected" : ""}>${ESC(u.username)}${u.bot ? " [BOT]" : ""}</option>`
+  ).join("");
+  if (!users.length) sel.innerHTML = `<option value="">(ユーザー未作成)</option>`;
+}
+
+function renderUserPanel() {
+  const user = (STATE.raw?.users || []).find(u => u.id === STATE.currentUserId);
+  const panel = $("user-panel");
+  if (!user) {
+    panel.innerHTML = `<div class="muted" style="padding: 0 8px;">ユーザー未選択</div>`;
+    return;
+  }
+  panel.innerHTML = `
+    ${avatarHTML(user, { size: 32 })}
+    <div class="info">
+      <div class="name">${ESC(user.username)}</div>
+      <div class="sub">${user.bot ? "BOT" : "オンライン"} · #${ESC(user.discriminator || "0")}</div>
+    </div>
+  `;
+}
+
+function renderGuildBar() {
+  const guilds = STATE.raw?.guilds || [];
+  const bar = $("guild-bar");
+  const homeBtn = `
+    <div class="guild-icon-wrap" title="DM (未対応)">
+      <span class="pill"></span>
+      <div class="guild-icon home">@</div>
+    </div>
+    <div class="guild-divider"></div>
+  `;
+  const items = guilds.map(g => {
+    const active = g.id === STATE.activeGuildId ? "active" : "";
+    const label = ESC(initial(g.name));
+    return `
+      <div class="guild-icon-wrap ${active}" data-guild="${ESC(g.id)}" title="${ESC(g.name)}">
+        <span class="pill"></span>
+        <div class="guild-icon">${label}</div>
+      </div>
+    `;
+  }).join("");
+  const addBtn = `
+    <div class="guild-icon-wrap" id="add-guild-wrap" title="新しいギルドを作成">
+      <span class="pill"></span>
+      <div class="guild-icon add">+</div>
+    </div>
+  `;
+  bar.innerHTML = homeBtn + items + addBtn;
+
+  bar.querySelectorAll("[data-guild]").forEach(el => {
+    el.addEventListener("click", () => {
+      STATE.activeGuildId = el.dataset.guild;
+      STATE.activeChannelId = null; // will be reselected in fetchState
+      refresh();
+    });
+  });
+  $("add-guild-wrap").addEventListener("click", createGuildPrompt);
+}
+
+function renderChannelBar() {
+  const guild = (STATE.raw?.guilds || []).find(g => g.id === STATE.activeGuildId);
+  $("guild-name").textContent = guild ? guild.name : "No Guild";
+  const list = $("channel-list");
+  if (!guild) { list.innerHTML = `<div class="muted" style="padding:16px;">ギルドを選択してください</div>`; return; }
+
+  const channels = (guild.channels || []).slice().sort((a,b) => (a.position|0) - (b.position|0));
+  const categories = channels.filter(c => c.type === 4);
+  const byParent = {};
+  const orphan = [];
+  for (const c of channels) {
+    if (c.type === 4) continue;
+    if (c.parent_id && channels.find(x => x.id === c.parent_id && x.type === 4)) {
+      (byParent[c.parent_id] = byParent[c.parent_id] || []).push(c);
+    } else {
+      orphan.push(c);
+    }
+  }
+
+  const renderChannel = c => {
+    const sym = c.type === 2 ? "\u{1F50A}" : c.type === 5 ? "\u{1F4E2}" : c.type === 15 ? "\u{1F4AC}" : "#";
+    const active = c.id === STATE.activeChannelId ? "active" : "";
+    return `<div class="channel ${active}" data-channel="${ESC(c.id)}" data-type="${c.type}">
+      <span class="sym">${sym}</span>
+      <span class="ch-name">${ESC(c.name || "")}</span>
+    </div>`;
+  };
+
+  const orphanHTML = orphan.length
+    ? `<div class="uncat-list">${orphan.map(renderChannel).join("")}</div>`
+    : "";
+
+  const catHTML = categories.map(cat => {
+    const collapsed = STATE.collapsedCats.has(cat.id) ? "collapsed" : "";
+    const kids = (byParent[cat.id] || []);
+    return `
+      <div class="category ${collapsed}" data-cat="${ESC(cat.id)}">
+        <span class="chev">&#9660;</span>
+        <span class="cat-name">${ESC(cat.name || "")}</span>
+        <span class="cat-add" data-add-under="${ESC(cat.id)}" title="このカテゴリにチャンネル追加">+</span>
+      </div>
+      <div class="cat-kids" data-kids="${ESC(cat.id)}" style="${collapsed ? "display:none" : ""}">
+        ${kids.map(renderChannel).join("")}
+      </div>
+    `;
+  }).join("");
+
+  const addRow = `
+    <div class="add-ch-row">
+      <button id="add-channel-btn">+ チャンネル/カテゴリ追加</button>
+    </div>
+  `;
+
+  list.innerHTML = orphanHTML + catHTML + addRow;
+
+  list.querySelectorAll(".channel").forEach(el => {
+    el.addEventListener("click", async () => {
+      const type = parseInt(el.dataset.type, 10);
+      if (type !== 0 && type !== 5 && type !== 15) return; // only text-ish
+      STATE.activeChannelId = el.dataset.channel;
+      await fetchMessages();
+      render();
+    });
+  });
+  list.querySelectorAll(".category").forEach(el => {
+    el.addEventListener("click", e => {
+      if (e.target.classList.contains("cat-add")) return;
+      const cid = el.dataset.cat;
+      if (STATE.collapsedCats.has(cid)) STATE.collapsedCats.delete(cid);
+      else STATE.collapsedCats.add(cid);
+      renderChannelBar();
+    });
+  });
+  list.querySelectorAll("[data-add-under]").forEach(el => {
+    el.addEventListener("click", e => {
+      e.stopPropagation();
+      createChannelPrompt(el.dataset.addUnder);
+    });
+  });
+  $("add-channel-btn")?.addEventListener("click", () => createChannelPrompt(null));
+}
+
+function renderChannelHeader() {
+  const guild = (STATE.raw?.guilds || []).find(g => g.id === STATE.activeGuildId);
+  const ch = guild?.channels.find(c => c.id === STATE.activeChannelId);
+  const input = $("message-input");
+  const box = $("input-box");
+  if (!ch) {
+    $("active-channel-name").textContent = "—";
+    $("active-channel-topic").textContent = "チャンネルを選択してください";
+    input.placeholder = "チャンネルを選択してください";
+    input.disabled = true;
+    box.classList.add("disabled");
+    return;
+  }
+  $("active-channel-name").textContent = ch.name || "";
+  $("active-channel-topic").textContent = ch.topic || "";
+  input.placeholder = `#${ch.name} でメッセージを送信`;
+  input.disabled = false;
+  box.classList.remove("disabled");
+}
+
+function renderMessages() {
+  const wrap = $("messages-wrap");
+  const root = $("messages");
+  if (!STATE.activeChannelId) {
+    root.innerHTML = `<div class="empty-channel"><div class="big">チャンネル未選択</div>左側からチャンネルを選んでください。</div>`;
+    return;
+  }
+  const guild = (STATE.raw?.guilds || []).find(g => g.id === STATE.activeGuildId);
+  const ch = guild?.channels.find(c => c.id === STATE.activeChannelId);
+  if (!STATE.messages.length) {
+    const name = ch?.name ? `#${ch.name}` : "このチャンネル";
+    root.innerHTML = `<div class="empty-channel"><div class="big">${ESC(name)} へようこそ！</div>
+      これが ${ESC(name)} の始まりです。下の入力欄からメッセージを送信できます。</div>`;
+    return;
+  }
+
+  // Group consecutive messages from same author within 7 minutes
+  const GROUP_MS = 7 * 60 * 1000;
+  let prev = null;
+  const html = STATE.messages.map((m, idx) => {
+    const u = m.author || {};
+    const tsDate = new Date(m.timestamp);
+    let grouped = false;
+    if (prev) {
+      const prevU = prev.author || {};
+      const prevTs = new Date(prev.timestamp);
+      if (prevU.id === u.id && (tsDate - prevTs) < GROUP_MS) grouped = true;
+    }
+    prev = m;
+
+    const botTag = u.bot ? `<span class="bot-tag">APP</span>` : "";
+    const cls = grouped ? "msg grouped" : "msg first";
+    const avatar = grouped ? "" : `${avatarHTML(u, { size: 40, showStatus: false })}`;
+    const head = grouped ? "" : `<div class="head">
+      <span class="author">${ESC(u.username || "unknown")}</span>${botTag}
+      <span class="ts">${ESC(fmtTime(m.timestamp))}</span>
+    </div>`;
+    const tsHover = grouped ? `<span class="ts-hover">${ESC(tsDate.toTimeString().slice(0,5))}</span>` : "";
+    return `<div class="${cls}">
+      ${avatar}
+      ${tsHover}
+      ${head}
+      <div class="content">${ESC(m.content)}</div>
+    </div>`;
+  }).join("");
+
+  root.innerHTML = html;
+  // Scroll to bottom (since column-reverse, bottom is scrollTop = 0)
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+function renderMemberList() {
+  const guild = (STATE.raw?.guilds || []).find(g => g.id === STATE.activeGuildId);
+  const bar = $("member-bar");
+  if (!guild) { bar.innerHTML = ""; return; }
+
+  const members = guild.members || [];
+  // Split: bots vs humans; further split humans into owner/members
+  const onlineHumans = members.filter(m => !m.user.bot);
+  const bots = members.filter(m => m.user.bot);
+
+  const row = (m, isOwner) => `
+    <div class="member-row ${isOwner ? "owner" : ""}">
+      ${avatarHTML(m.user, { size: 32 })}
+      <span class="name">${ESC(m.nick || m.user.username)}${isOwner ? ' <span style="color:var(--yellow);font-size:11px;">★</span>' : ""}</span>
+    </div>
+  `;
+
+  let html = "";
+  if (onlineHumans.length) {
+    html += `<div class="member-group-title">オンライン — ${onlineHumans.length}</div>`;
+    html += onlineHumans.map(m => row(m, m.user.id === guild.owner_id)).join("");
+  }
+  if (bots.length) {
+    html += `<div class="member-group-title">BOT — ${bots.length}</div>`;
+    html += bots.map(m => row(m, false)).join("");
+  }
+  if (!html) html = `<div class="muted" style="padding:16px;">メンバーなし</div>`;
+  bar.innerHTML = html;
+}
+
+function render() {
+  renderUserSelect();
+  renderUserPanel();
+  renderGuildBar();
+  renderChannelBar();
+  renderChannelHeader();
+  renderMessages();
+  renderMemberList();
+}
+
+async function refresh() {
+  await fetchState();
+  await fetchMessages();
+  render();
+}
+
+// ---------- actions ----------
+async function createGuildPrompt() {
+  if (!STATE.currentUserId) {
+    alert("先にユーザーを作成してください (/panel)");
+    return;
+  }
+  const name = prompt("ギルド名:");
+  if (!name) return;
+  await api("POST", "/admin/guilds", { name: name.trim(), owner_id: STATE.currentUserId });
+  await refresh();
+}
+
+async function createChannelPrompt(parentId) {
+  if (!STATE.activeGuildId) return;
+  let typeStr = prompt("チャンネル種別: text / voice / category", parentId ? "text" : "text");
+  if (!typeStr) return;
+  typeStr = typeStr.trim().toLowerCase();
+  const typeMap = { text: 0, voice: 2, category: 4, announcement: 5, forum: 15 };
+  if (!(typeStr in typeMap)) { alert("text / voice / category のいずれかを指定してください"); return; }
+  const type = typeMap[typeStr];
+  const name = prompt(`${typeStr} の名前:`);
+  if (!name) return;
+  const body = { name: name.trim(), type };
+  if (parentId && type !== 4) body.parent_id = parentId;
+  await api("POST", `/admin/guilds/${STATE.activeGuildId}/channels`, body);
+  await refresh();
+}
+
+async function sendMessage() {
+  const input = $("message-input");
+  const content = input.value;
+  if (!content.trim()) return;
+  if (!STATE.currentUserId || !STATE.activeChannelId) return;
+  input.value = "";
+  input.style.height = "auto";
+  await api("POST", "/admin/send-message", {
+    author_id: STATE.currentUserId,
+    channel_id: STATE.activeChannelId,
+    content,
+  });
+  setTimeout(async () => {
+    await fetchMessages();
+    renderMessages();
+  }, 200);
+}
+
+// ---------- gateway log (optional) ----------
+const GW = { ws: null, events: [], connected: false };
+function gwLog(name, data) {
+  const t = new Date().toTimeString().slice(0, 8);
+  GW.events.unshift({ t, name, data });
+  if (GW.events.length > 100) GW.events.length = 100;
+  const body = $("gw-body");
+  if (body) {
+    body.innerHTML = GW.events.map(e =>
+      `<div class="gw-event"><span class="time">${e.t}</span><span class="name">${ESC(e.name)}</span> ${ESC(JSON.stringify(e.data).slice(0, 200))}</div>`
+    ).join("");
+  }
+}
+function setGwStatus(on, text) {
+  const s = $("gw-status");
+  s.className = "gw-status " + (on ? "on" : "off");
+  s.textContent = text || (on ? "connected" : "disconnected");
+  GW.connected = on;
+}
+function gwDisconnect() {
+  if (GW.ws) {
+    try { GW.ws.close(); } catch (_) {}
+    GW.ws = null;
+  }
+  setGwStatus(false);
+}
+function gwConnect() {
+  const tok = firstBotToken();
+  if (!tok) { alert("bot トークンがありません。/panel で bot を作成してください。"); return; }
+  gwDisconnect();
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const url = `${proto}//${location.host}/gateway`;
+  setGwStatus(false, "connecting...");
+  try {
+    const ws = new WebSocket(url);
+    GW.ws = ws;
+    ws.addEventListener("open", () => {
+      // IDENTIFY (op 2)
+      ws.send(JSON.stringify({
+        op: 2,
+        d: { token: tok, intents: 131071, properties: { os: "browser", browser: "dapi-emu-client", device: "dapi-emu-client" } },
+      }));
+      setGwStatus(true);
+      gwLog("WS_OPEN", { url });
+    });
+    ws.addEventListener("message", ev => {
+      let pkt;
+      try { pkt = JSON.parse(ev.data); } catch { return; }
+      if (pkt.op === 10) {
+        // HELLO — send heartbeat loop
+        const interval = pkt.d?.heartbeat_interval || 41250;
+        const beat = () => {
+          if (ws.readyState === 1) {
+            ws.send(JSON.stringify({ op: 1, d: null }));
+            setTimeout(beat, interval);
+          }
+        };
+        setTimeout(beat, interval);
+        gwLog("HELLO", pkt.d || {});
+      } else if (pkt.op === 0) {
+        gwLog(pkt.t || "DISPATCH", pkt.d || {});
+      } else if (pkt.op === 11) {
+        // heartbeat ack — skip
+      } else {
+        gwLog(`OP_${pkt.op}`, pkt.d || {});
+      }
+    });
+    ws.addEventListener("close", () => { setGwStatus(false, "closed"); });
+    ws.addEventListener("error", () => { setGwStatus(false, "error"); });
+  } catch (e) {
+    gwLog("ERROR", { message: String(e) });
+    setGwStatus(false, "error");
+  }
+}
+
+// ---------- wiring ----------
+$("current-user").addEventListener("change", e => {
+  STATE.currentUserId = e.target.value || null;
+  renderUserPanel();
+});
+
+$("reload-btn").addEventListener("click", refresh);
+
+$("send-btn").addEventListener("click", sendMessage);
+
+const msgInput = $("message-input");
+msgInput.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendMessage();
+  }
+});
+msgInput.addEventListener("input", () => {
+  msgInput.style.height = "auto";
+  msgInput.style.height = Math.min(msgInput.scrollHeight, 200) + "px";
+});
+
+$("gw-toggle").addEventListener("click", () => {
+  $("gw-drawer").style.display = "flex";
+  $("gw-toggle").style.display = "none";
+});
+$("gw-close").addEventListener("click", () => {
+  $("gw-drawer").style.display = "none";
+  $("gw-toggle").style.display = "block";
+});
+$("gw-clear").addEventListener("click", () => { GW.events = []; gwLog.toString(); $("gw-body").innerHTML = ""; });
+$("gw-connect").addEventListener("click", () => {
+  if (GW.connected) gwDisconnect();
+  else gwConnect();
+});
+
+// ---------- boot ----------
+refresh();
+setInterval(async () => {
+  await fetchState();
+  await fetchMessages();
+  render();
+}, 3000);
+</script>
+</body>
+</html>

@@ -60,7 +60,8 @@ client = SimpleBot()
 
 @client.event
 async def on_ready() -> None:
-    print(f"Logged in as {client.user}")
+    print(f"Logged in as {client.user}", flush=True)
+    print(f"Guilds: {[g.name for g in client.guilds]}", flush=True)
 
 
 @client.event

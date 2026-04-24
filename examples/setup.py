@@ -51,19 +51,15 @@ def _request(method: str, path: str, payload: dict | None = None) -> dict:
 def _find_general_channel(guild_id: str) -> str | None:
     """/admin/state から guild の #general を探す。"""
     state = _request("GET", "/admin/state")
-    # state の形は実装依存。よくある形を順に試す。
-    channels = state.get("channels") or []
-    if isinstance(channels, dict):
-        channels = list(channels.values())
-    for ch in channels:
-        if str(ch.get("guild_id")) != str(guild_id):
+    for g in state.get("guilds", []):
+        if str(g.get("id")) != str(guild_id):
             continue
-        if ch.get("name") == "general":
-            return str(ch["id"])
-    # 見つからなければ guild 配下の最初の text channel にフォールバック
-    for ch in channels:
-        if str(ch.get("guild_id")) == str(guild_id):
-            return str(ch["id"])
+        for ch in g.get("channels", []):
+            if ch.get("name") == "general":
+                return str(ch["id"])
+        for ch in g.get("channels", []):
+            if ch.get("type") == 0:
+                return str(ch["id"])
     return None
 
 

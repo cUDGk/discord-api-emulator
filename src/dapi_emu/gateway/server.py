@@ -71,6 +71,63 @@ def _strip_message_content(msg: dict[str, Any]) -> dict[str, Any]:
     return m
 
 
+# Events that don't belong to a specific guild/channel — always deliver.
+_BROADCAST_EVENTS = {
+    "READY", "RESUMED", "USER_UPDATE", "APPLICATION_COMMAND_PERMISSIONS_UPDATE",
+}
+
+
+def _resolve_guild_id(data: dict[str, Any]) -> str | None:
+    gid = data.get("guild_id")
+    if gid:
+        return gid
+    channel_id = data.get("channel_id") or data.get("id")
+    if channel_id and channel_id in WORLD.channels:
+        return WORLD.channels[channel_id].guild_id
+    return None
+
+
+def _should_deliver(session: "Session", event_name: str, data: dict[str, Any]) -> bool:
+    """Return True iff this bot should receive this event.
+
+    Isolates bots: each bot only sees events from guilds it is a member of,
+    DMs it participates in, or interactions targeted at its application.
+    """
+    user_id = session.user_id
+    if user_id is None:
+        return False
+
+    if event_name in _BROADCAST_EVENTS:
+        return True
+
+    # Interactions: only the owning application receives them
+    if event_name == "INTERACTION_CREATE":
+        app_id = data.get("application_id")
+        if not app_id:
+            return False
+        app = WORLD.applications.get(app_id)
+        return bool(app and app.bot_id == user_id)
+
+    # Guild-scoped events
+    guild_id = _resolve_guild_id(data)
+    if guild_id is not None:
+        return (user_id, guild_id) in WORLD.members
+
+    # DM / group DM by channel recipients
+    channel_id = data.get("channel_id") or data.get("id")
+    if channel_id and channel_id in WORLD.channels:
+        ch = WORLD.channels[channel_id]
+        if ch.type in (1, 3):
+            return user_id in ch.recipients
+
+    # Fallback: if the payload carries a user_id, only deliver to self
+    if "user_id" in data:
+        return data["user_id"] == user_id
+
+    # Otherwise don't leak
+    return False
+
+
 @router.websocket("/gateway")
 async def gateway_ws(ws: WebSocket) -> None:
     await ws.accept()
@@ -92,8 +149,9 @@ async def gateway_ws(ws: WebSocket) -> None:
                 event_name, data = await session.queue.get()
             except asyncio.CancelledError:
                 return
+            if not _should_deliver(session, event_name, data):
+                continue
             if event_name == "MESSAGE_CREATE" and not (session.intents & INTENT_MESSAGE_CONTENT):
-                # leave content as-is if bot is author or is mentioned
                 author_id = data.get("author", {}).get("id")
                 mentioned_ids = {u.get("id") for u in data.get("mentions", [])}
                 if author_id != session.user_id and session.user_id not in mentioned_ids:

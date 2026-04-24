@@ -31,6 +31,16 @@ def apply() -> None:
     if _applied:
         return
 
+    # Windows で aiohttp + aiodns が ProactorEventLoop だと落ちるので
+    # SelectorEventLoop に切り替える。
+    import sys as _sys
+    if _sys.platform == "win32":
+        import asyncio as _asyncio
+        try:
+            _asyncio.set_event_loop_policy(_asyncio.WindowsSelectorEventLoopPolicy())
+        except Exception:
+            pass
+
     import discord.http
     import discord.gateway
 
