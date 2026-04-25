@@ -109,6 +109,14 @@
       <button onclick="rawDispatch()">dispatch</button>
       <button class="danger" onclick="resetWorld()">reset world</button>
     </div>
+
+    <h2 style="margin-top: 20px;">💾 Presets</h2>
+    <p class="muted">現在の users / guilds / channels / roles / members をまとめて名前付きスナップショットに保存。読み込みで一発再現。</p>
+    <div class="row">
+      <input id="preset_name" placeholder="my-test-setup">
+      <button onclick="savePreset()">save current</button>
+    </div>
+    <div id="presets" style="margin-top: 8px;"></div>
   </div>
 </div>
 
@@ -162,6 +170,23 @@ async function refresh() {
   ["g_owner","m_user","sm_author"].forEach(id => $(id).innerHTML = userOpts);
   ["m_guild","r_guild","c_guild"].forEach(id => $(id).innerHTML = guildOpts);
   $("sm_channel").innerHTML = channelOpts;
+
+  // Presets list
+  const presets = await fetch("/admin/presets").then(r => r.json()).catch(() => []);
+  $("presets").innerHTML = presets.length === 0
+    ? '<div class="muted">no presets saved yet</div>'
+    : `<table><tr><th>name</th><th>summary</th><th></th></tr>` +
+      presets.map(p => {
+        const s = p.summary;
+        return `<tr>
+          <td><b>${p.name}</b></td>
+          <td class="muted">${s.users}u (${s.bots}bot) / ${s.guilds}g / ${s.channels}c / ${s.roles}r / ${s.members}m</td>
+          <td>
+            <button onclick="loadPreset('${p.name}')">load</button>
+            <button class="danger sec" onclick="delPreset('${p.name}')">×</button>
+          </td>
+        </tr>`;
+      }).join("") + `</table>`;
 }
 
 async function createUser() {
@@ -233,6 +258,22 @@ async function resetWorld() {
 }
 function fillHello() {
   $("sm_content").value = "hello bot!";
+}
+async function savePreset() {
+  const name = $("preset_name").value.trim();
+  if (!name) { alert("name required"); return; }
+  const r = await api("POST", "/admin/presets", { name });
+  if (r) { $("preset_name").value = ""; refresh(); }
+}
+async function loadPreset(name) {
+  if (!confirm(`load preset "${name}"? current world will be replaced.`)) return;
+  await api("POST", `/admin/presets/${encodeURIComponent(name)}/load`);
+  refresh();
+}
+async function delPreset(name) {
+  if (!confirm(`delete preset "${name}"?`)) return;
+  await api("DELETE", `/admin/presets/${encodeURIComponent(name)}`);
+  refresh();
 }
 
 refresh();

@@ -389,6 +389,101 @@ async def admin_delete_guild(guild_id: str) -> None:
     WORLD.bus.publish("GUILD_DELETE", {"id": guild_id, "unavailable": False})
 
 
+def _capture_preset() -> dict:
+    """Snapshot the WORLD subset that's worth saving as a 'preset' (no
+    messages/audit/transient state). Re-loadable via _restore_preset()."""
+    from dataclasses import asdict
+    return {
+        "users": {uid: asdict(u) for uid, u in WORLD.users.items()},
+        "guilds": {gid: asdict(g) for gid, g in WORLD.guilds.items()},
+        "channels": {cid: asdict(c) for cid, c in WORLD.channels.items()},
+        "roles": {rid: asdict(r) for rid, r in WORLD.roles.items()},
+        "members": {f"{uid}:{gid}": asdict(m) for (uid, gid), m in WORLD.members.items()},
+        "applications": {aid: asdict(a) for aid, a in WORLD.applications.items()},
+        "bot_tokens": dict(WORLD.bot_tokens),
+        "emojis": {eid: dict(e) for eid, e in WORLD.emojis.items()},
+        "guild_emojis": {gid: list(v) for gid, v in WORLD.guild_emojis.items()},
+    }
+
+
+def _restore_preset(snap: dict) -> None:
+    """Replace the user/guild/channel/role world from a snapshot."""
+    from ..state import User, Guild, Channel, Role, Member, Application
+    WORLD.users.clear(); WORLD.guilds.clear(); WORLD.channels.clear()
+    WORLD.roles.clear(); WORLD.members.clear()
+    WORLD.applications.clear(); WORLD.bot_tokens.clear()
+    WORLD.emojis.clear(); WORLD.guild_emojis.clear()
+    for uid, ud in snap.get("users", {}).items():
+        WORLD.users[uid] = User(**ud)
+    for gid, gd in snap.get("guilds", {}).items():
+        WORLD.guilds[gid] = Guild(**gd)
+    for cid, cd in snap.get("channels", {}).items():
+        WORLD.channels[cid] = Channel(**cd)
+        WORLD.channel_messages.setdefault(cid, [])
+    for rid, rd in snap.get("roles", {}).items():
+        WORLD.roles[rid] = Role(**rd)
+    for k, md in snap.get("members", {}).items():
+        uid, gid = k.split(":", 1)
+        WORLD.members[(uid, gid)] = Member(**md)
+    for aid, ad in snap.get("applications", {}).items():
+        WORLD.applications[aid] = Application(**ad)
+    WORLD.bot_tokens.update(snap.get("bot_tokens", {}))
+    for eid, ed in snap.get("emojis", {}).items():
+        WORLD.emojis[eid] = dict(ed)
+    for gid, lst in snap.get("guild_emojis", {}).items():
+        WORLD.guild_emojis[gid] = list(lst)
+
+
+def _summarize_preset(snap: dict) -> dict:
+    return {
+        "users": len(snap.get("users", {})),
+        "bots": sum(1 for u in snap.get("users", {}).values() if u.get("bot")),
+        "guilds": len(snap.get("guilds", {})),
+        "channels": len(snap.get("channels", {})),
+        "roles": len(snap.get("roles", {})),
+        "members": len(snap.get("members", {})),
+    }
+
+
+@router.get("/admin/presets")
+async def admin_list_presets() -> list[dict]:
+    return [
+        {"name": name, "summary": _summarize_preset(snap)}
+        for name, snap in WORLD.presets.items()
+    ]
+
+
+@router.post("/admin/presets")
+async def admin_save_preset(body: dict) -> dict:
+    """Capture the current world (users/guilds/channels/roles/members/...) under a name."""
+    name = body.get("name")
+    if not name:
+        raise HTTPException(400, "name required")
+    WORLD.presets[name] = _capture_preset()
+    return {"ok": True, "name": name, "summary": _summarize_preset(WORLD.presets[name])}
+
+
+@router.put("/admin/presets/{name}")
+async def admin_replace_preset(name: str, body: dict) -> dict:
+    """Replace a preset with a raw snapshot dict (advanced use)."""
+    WORLD.presets[name] = body if isinstance(body, dict) else {}
+    return {"ok": True, "name": name}
+
+
+@router.post("/admin/presets/{name}/load")
+async def admin_load_preset(name: str) -> dict:
+    snap = WORLD.presets.get(name)
+    if snap is None:
+        raise HTTPException(404, "preset not found")
+    _restore_preset(snap)
+    return {"ok": True, "name": name, "summary": _summarize_preset(snap)}
+
+
+@router.delete("/admin/presets/{name}", status_code=204)
+async def admin_delete_preset(name: str) -> None:
+    WORLD.presets.pop(name, None)
+
+
 @router.put("/admin/polls/{message_id}")
 async def admin_set_poll(message_id: str, body: dict) -> dict:
     """Attach poll state to an existing message. Used by tests."""

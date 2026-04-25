@@ -347,6 +347,11 @@ class World:
         # drops the WS and comes back with op 6 Resume.
         self.resumable_sessions: dict[str, dict[str, Any]] = {}
 
+        # Named presets — snapshots of (users / guilds / channels / roles /
+        # members / applications / bot_tokens) that can be re-loaded for
+        # repeatable test setups.
+        self.presets: dict[str, dict[str, Any]] = {}
+
         self.bus = EventBus()
 
     # User helpers

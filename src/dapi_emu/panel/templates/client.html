@@ -621,6 +621,11 @@
   <div class="user-select-wrap">
     <span class="muted">現在のユーザー:</span>
     <select id="current-user"></select>
+    <select id="preset-select" title="プリセット読み込み" style="background:#1e1f22;color:#dbdee1;border:1px solid #3e4147;border-radius:4px;padding:4px 6px;font-size:13px;">
+      <option value="">— preset —</option>
+    </select>
+    <button class="reload-btn" id="load-preset-btn" title="選択中のプリセットを読み込む">load</button>
+    <button class="reload-btn" id="save-preset-btn" title="現在の状態を名前付きで保存">save…</button>
     <button class="reload-btn" id="reload-btn" title="Reload state">Reload</button>
   </div>
 </div>
@@ -1193,6 +1198,44 @@ $("current-user").addEventListener("change", e => {
 });
 
 $("reload-btn").addEventListener("click", refresh);
+
+async function refreshPresets() {
+  try {
+    const list = await fetch("/admin/presets").then(r => r.json());
+    const sel = $("preset-select");
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— preset —</option>' +
+      list.map(p => {
+        const s = p.summary;
+        return `<option value="${p.name}">${p.name} (${s.users}u/${s.guilds}g/${s.channels}c/${s.roles}r)</option>`;
+      }).join("");
+    if (cur) sel.value = cur;
+  } catch (e) { /* ignore */ }
+}
+
+$("save-preset-btn").addEventListener("click", async () => {
+  const name = prompt("プリセット名を入力:");
+  if (!name) return;
+  const r = await fetch("/admin/presets", {
+    method: "POST", headers: {"content-type": "application/json"},
+    body: JSON.stringify({name}),
+  });
+  if (!r.ok) { alert("save failed: " + r.status); return; }
+  await refreshPresets();
+});
+
+$("load-preset-btn").addEventListener("click", async () => {
+  const name = $("preset-select").value;
+  if (!name) { alert("プリセットを選択してください"); return; }
+  if (!confirm(`プリセット "${name}" を読み込む？\n現在の users/guilds/channels/roles/members は置き換わります。`)) return;
+  const r = await fetch(`/admin/presets/${encodeURIComponent(name)}/load`, {method: "POST"});
+  if (!r.ok) { alert("load failed: " + r.status); return; }
+  await refresh();
+});
+
+// Initial preset list + periodic refresh
+refreshPresets();
+setInterval(refreshPresets, 5000);
 
 $("send-btn").addEventListener("click", sendMessage);
 
