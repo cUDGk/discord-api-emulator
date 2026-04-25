@@ -89,10 +89,12 @@ def test_full_bot_flow():
     assert msg["content"] == "hello"
     assert msg["author"]["id"] == bot_id
 
-    # List messages
+    # List messages — at least our hello is there (system join messages may
+    # also be present from /admin/guilds/{}/members)
     r = c.get(f"/api/v10/channels/{ch_id}/messages", headers=headers)
     assert r.status_code == 200
-    assert len(r.json()) == 1
+    contents = [m["content"] for m in r.json()]
+    assert "hello" in contents
 
 
 def test_ratelimit_headers_present():

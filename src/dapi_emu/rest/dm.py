@@ -55,32 +55,40 @@ async def list_my_dms(bot: User = Depends(require_bot)) -> list[dict]:
 
 @router.post("/channels/{channel_id}/recipients/{user_id}", status_code=204)
 async def group_dm_add_recipient(
-    channel_id: str, user_id: str, _bot: User = Depends(require_bot)
+    channel_id: str, user_id: str, bot: User = Depends(require_bot)
 ) -> None:
+    from .. import system_messages
     ch = WORLD.channels.get(channel_id)
     if not ch or ch.type != 3:
         raise HTTPException(status_code=404, detail={"code": 10003, "message": "Unknown Channel"})
     if user_id not in WORLD.users:
         raise HTTPException(status_code=404, detail={"code": 10013, "message": "Unknown User"})
-    if user_id not in ch.recipients:
+    was_present = user_id in ch.recipients
+    if not was_present:
         ch.recipients.append(user_id)
     WORLD.bus.publish("CHANNEL_RECIPIENT_ADD", {
         "channel_id": channel_id,
         "user": WORLD.users[user_id].to_dict(),
     })
+    if not was_present:
+        system_messages.recipient_added(channel_id, bot.id, user_id)
 
 
 @router.delete("/channels/{channel_id}/recipients/{user_id}", status_code=204)
 async def group_dm_remove_recipient(
-    channel_id: str, user_id: str, _bot: User = Depends(require_bot)
+    channel_id: str, user_id: str, bot: User = Depends(require_bot)
 ) -> None:
+    from .. import system_messages
     ch = WORLD.channels.get(channel_id)
     if not ch or ch.type != 3:
         raise HTTPException(status_code=404, detail={"code": 10003, "message": "Unknown Channel"})
-    if user_id in ch.recipients:
+    was_present = user_id in ch.recipients
+    if was_present:
         ch.recipients.remove(user_id)
     user = WORLD.users.get(user_id)
     WORLD.bus.publish("CHANNEL_RECIPIENT_REMOVE", {
         "channel_id": channel_id,
         "user": user.to_dict() if user else {"id": user_id},
     })
+    if was_present:
+        system_messages.recipient_removed(channel_id, bot.id, user_id)

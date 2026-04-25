@@ -96,7 +96,10 @@ def test_deferred_response_then_edit() -> None:
     bot = c.post("/admin/users", json={"username": "b", "bot": True}).json()
     owner = c.post("/admin/users", json={"username": "o"}).json()["user"]
     g = c.post("/admin/guilds", json={"name": "G", "owner_id": owner["id"]}).json()
-    c.post(f"/admin/guilds/{g['id']}/members", json={"user_id": bot["user"]["id"]})
+    # silent join — keep the channel free of system messages so we can
+    # assert on the loading message at messages[-1].
+    c.post(f"/admin/guilds/{g['id']}/members",
+           json={"user_id": bot["user"]["id"], "silent": True})
 
     itok = "deferred_tok"
     c.post("/admin/interaction-tokens", json={
@@ -110,15 +113,17 @@ def test_deferred_response_then_edit() -> None:
                json={"type": 5})
     assert r.status_code < 300, r.text
 
-    # LOADING bit should be set on the loading msg
+    # LOADING bit should be set on the most recent message (the loading one)
     messages = c.get(f"/admin/channels/{g['channels'][0]['id']}/messages").json()
     assert messages
-    assert messages[0]["flags"] & 128, "LOADING flag missing"
+    loading_msg = messages[-1]
+    assert loading_msg["flags"] & 128, "LOADING flag missing"
 
     # Edit @original -> clears LOADING
     r = c.patch(f"/api/v10/webhooks/{bot['application_id']}/{itok}/messages/@original",
                 json={"content": "actual answer"})
     assert r.status_code < 300, r.text
     messages = c.get(f"/admin/channels/{g['channels'][0]['id']}/messages").json()
-    assert messages[0]["content"] == "actual answer"
-    assert not (messages[0]["flags"] & 128), "LOADING still set"
+    edited = next(m for m in messages if m["id"] == loading_msg["id"])
+    assert edited["content"] == "actual answer"
+    assert not (edited["flags"] & 128), "LOADING still set"

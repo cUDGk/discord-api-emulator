@@ -148,6 +148,9 @@ async def start_thread_from_message(
             {"key": "type", "new_value": thread["type"]},
         ],
     )
+    from .. import system_messages
+    system_messages.thread_created(channel_id, bot.id, thread["name"], thread["id"])
+    system_messages.thread_starter(thread["id"], message_id, channel_id)
     return thread
 
 
@@ -191,6 +194,8 @@ async def start_thread(
             {"key": "type", "new_value": thread["type"]},
         ],
     )
+    from .. import system_messages
+    system_messages.thread_created(channel_id, bot.id, thread["name"], thread["id"])
     return thread
 
 

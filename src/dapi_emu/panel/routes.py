@@ -114,6 +114,7 @@ async def admin_create_guild(body: dict) -> dict:
 
 @router.post("/admin/guilds/{guild_id}/members")
 async def admin_add_member(guild_id: str, body: dict) -> dict:
+    from .. import system_messages
     user_id = body.get("user_id")
     if not user_id or user_id not in WORLD.users:
         raise HTTPException(400, "user_id required")
@@ -122,6 +123,8 @@ async def admin_add_member(guild_id: str, body: dict) -> dict:
     m = WORLD.add_member(user_id, guild_id, nick=body.get("nick"), roles=body.get("roles", []))
     payload = m.to_dict(WORLD.users) | {"guild_id": guild_id}
     WORLD.bus.publish("GUILD_MEMBER_ADD", payload)
+    if not body.get("silent", False):
+        system_messages.member_joined(guild_id, user_id)
     return payload
 
 
@@ -482,6 +485,60 @@ async def admin_load_preset(name: str) -> dict:
 @router.delete("/admin/presets/{name}", status_code=204)
 async def admin_delete_preset(name: str) -> None:
     WORLD.presets.pop(name, None)
+
+
+@router.post("/admin/system-message")
+async def admin_post_system_message(body: dict) -> dict:
+    """Manually post a typed system message (boost / call / stage / pin / etc).
+
+    body: {channel_id, type: int, author_id?, content?, **extra}
+
+    Useful for testing bot reactions to specific MessageType values.
+    """
+    from .. import system_messages
+    channel_id = body.pop("channel_id", None)
+    msg_type = body.pop("type", None)
+    if not channel_id or msg_type is None:
+        raise HTTPException(400, "channel_id and type required")
+    msg = system_messages.post(
+        channel_id=channel_id,
+        msg_type=int(msg_type),
+        author_id=body.pop("author_id", None),
+        content=body.pop("content", "") or "",
+        **body,
+    )
+    if msg is None:
+        raise HTTPException(404, "channel not found")
+    return msg.to_dict(WORLD.users)
+
+
+@router.post("/admin/guilds/{guild_id}/boost")
+async def admin_simulate_boost(guild_id: str, body: dict) -> dict:
+    """Simulate a server boost from a user (optionally with tier-up notice)."""
+    from .. import system_messages
+    user_id = body.get("user_id")
+    tier = int(body.get("tier", 0))
+    if not user_id or user_id not in WORLD.users:
+        raise HTTPException(400, "user_id required")
+    if guild_id not in WORLD.guilds:
+        raise HTTPException(404, "guild not found")
+    msg = system_messages.guild_boosted(guild_id, user_id, tier=tier)
+    if msg is None:
+        raise HTTPException(400, "no system channel available in this guild")
+    return msg.to_dict(WORLD.users)
+
+
+@router.post("/admin/channels/{channel_id}/call")
+async def admin_simulate_call(channel_id: str, body: dict) -> dict:
+    """Simulate a voice call started in a DM/group DM (MessageType=3)."""
+    from .. import system_messages
+    user_id = body.get("user_id")
+    if not user_id or user_id not in WORLD.users:
+        raise HTTPException(400, "user_id required")
+    if channel_id not in WORLD.channels:
+        raise HTTPException(404, "channel not found")
+    msg = system_messages.call_started(channel_id, user_id)
+    return msg.to_dict(WORLD.users) if msg else {}
 
 
 @router.put("/admin/polls/{message_id}")

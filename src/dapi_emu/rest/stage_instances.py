@@ -54,6 +54,8 @@ async def create_stage_instance(body: dict, bot: User = Depends(require_bot)) ->
         changes=[{"key": "topic", "new_value": topic}],
         options={"channel_id": channel_id},
     )
+    from .. import system_messages
+    system_messages.stage_started(channel_id, bot.id, topic)
     return stage
 
 
@@ -83,6 +85,9 @@ async def edit_stage_instance(channel_id: str, body: dict, bot: User = Depends(r
         stage.get("guild_id"), bot.id, channel_id, 91,
         changes=changes, options={"channel_id": channel_id},
     )
+    if "topic" in body:
+        from .. import system_messages
+        system_messages.stage_topic(channel_id, bot.id, body["topic"] or "")
     return stage
 
 
@@ -97,3 +102,5 @@ async def delete_stage_instance(channel_id: str, bot: User = Depends(require_bot
         changes=[{"key": "topic", "old_value": topic}],
         options={"channel_id": channel_id},
     )
+    from .. import system_messages
+    system_messages.stage_ended(channel_id, bot.id)

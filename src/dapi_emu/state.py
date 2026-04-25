@@ -207,6 +207,10 @@ class Guild:
     member_ids: list[str] = field(default_factory=list)
     emojis: list[dict[str, Any]] = field(default_factory=list)
     features: list[str] = field(default_factory=list)
+    # System channel for join/boost/pin notifications. Defaults to first
+    # text channel created (usually #general).
+    system_channel_id: str | None = None
+    system_channel_flags: int = 0  # bitfield: 1<<0 suppress joins, 1<<1 suppress boosts, ...
 
     def to_dict(self, world: World, *, full: bool = False) -> dict[str, Any]:
         d: dict[str, Any] = {
@@ -228,8 +232,8 @@ class Guild:
             "features": self.features,
             "mfa_level": 0,
             "application_id": None,
-            "system_channel_id": None,
-            "system_channel_flags": 0,
+            "system_channel_id": self.system_channel_id,
+            "system_channel_flags": self.system_channel_flags,
             "rules_channel_id": None,
             "max_presences": None,
             "max_members": 500000,
@@ -399,7 +403,11 @@ class World:
         self.channels[cid] = ch
         self.channel_messages[cid] = []
         if guild_id and guild_id in self.guilds:
-            self.guilds[guild_id].channel_ids.append(cid)
+            g = self.guilds[guild_id]
+            g.channel_ids.append(cid)
+            # First text channel becomes the system channel for join/boost notices.
+            if type == 0 and g.system_channel_id is None:
+                g.system_channel_id = cid
         return ch
 
     # Guild helpers

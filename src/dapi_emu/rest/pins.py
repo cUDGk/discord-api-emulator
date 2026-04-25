@@ -42,8 +42,10 @@ async def list_pins(channel_id: str, _bot: User = Depends(require_bot)) -> list[
 async def pin_message(
     channel_id: str, message_id: str, bot: User = Depends(require_bot)
 ) -> None:
+    from .. import system_messages
     ch = _require_channel(channel_id)
     m = _require_message(channel_id, message_id)
+    was_pinned = m.pinned
     m.pinned = True
     pins = WORLD.pinned_messages.setdefault(channel_id, [])
     if message_id not in pins:
@@ -57,6 +59,8 @@ async def pin_message(
         ch.guild_id, bot.id, m.author_id, 74,
         options={"channel_id": channel_id, "message_id": message_id},
     )
+    if not was_pinned:
+        system_messages.message_pinned(channel_id, bot.id, message_id)
 
 
 @router.delete("/channels/{channel_id}/pins/{message_id}", status_code=204)

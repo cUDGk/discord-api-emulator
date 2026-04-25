@@ -285,9 +285,11 @@ async def oauth2_authorize_confirm(
     scopes = scope.split()
     if "bot" in scopes and guild_id and guild_id in WORLD.guilds:
         if (app.bot_id, guild_id) not in WORLD.members:
+            from .. import system_messages
             WORLD.add_member(app.bot_id, guild_id)
             payload = WORLD.members[(app.bot_id, guild_id)].to_dict(WORLD.users) | {"guild_id": guild_id}
             WORLD.bus.publish("GUILD_MEMBER_ADD", payload)
+            system_messages.member_joined(guild_id, app.bot_id)
 
     params = {"code": code}
     if state:

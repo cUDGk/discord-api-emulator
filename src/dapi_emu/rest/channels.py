@@ -51,7 +51,9 @@ async def get_channel(channel_id: str, _bot: User = Depends(require_bot)) -> dic
 
 @router.patch("/channels/{channel_id}")
 async def edit_channel(channel_id: str, body: dict, bot: User = Depends(require_bot)) -> dict:
+    from .. import system_messages
     ch = _require_channel(channel_id)
+    old_name = ch.name
     changes: list[dict] = []
     for field in ("name", "topic", "nsfw", "position", "parent_id", "rate_limit_per_user"):
         if field in body:
@@ -62,6 +64,9 @@ async def edit_channel(channel_id: str, body: dict, bot: User = Depends(require_
             setattr(ch, field, new)
     WORLD.bus.publish("CHANNEL_UPDATE", ch.to_dict(WORLD.users))
     audit.log(ch.guild_id, bot.id, channel_id, 11, changes=changes)  # CHANNEL_UPDATE
+    # System message for group-DM/thread name change (type 4)
+    if "name" in body and body["name"] != old_name and ch.type in (1, 3, 10, 11, 12):
+        system_messages.channel_name_changed(channel_id, bot.id, body["name"])
     return ch.to_dict(WORLD.users)
 
 
@@ -123,6 +128,8 @@ async def create_message(
 ) -> dict:
     _require_channel(channel_id)
     embeds = body.embeds or ([body.embed] if body.embed else [])
+    # MessageType=19 (REPLY) when message_reference is set; else 0 (DEFAULT).
+    msg_type = 19 if body.message_reference else 0
     msg = WORLD.create_message(
         channel_id=channel_id,
         author_id=bot.id,
@@ -131,6 +138,8 @@ async def create_message(
         components=body.components or [],
         flags=body.flags or 0,
         tts=bool(body.tts),
+        type=msg_type,
+        referenced_message=body.message_reference,
     )
     payload = msg.to_dict(WORLD.users)
     WORLD.bus.publish("MESSAGE_CREATE", payload)
