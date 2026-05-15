@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse
@@ -412,10 +411,15 @@ def _capture_preset() -> dict:
 def _restore_preset(snap: dict) -> None:
     """Replace the user/guild/channel/role world from a snapshot."""
     from ..state import User, Guild, Channel, Role, Member, Application
-    WORLD.users.clear(); WORLD.guilds.clear(); WORLD.channels.clear()
-    WORLD.roles.clear(); WORLD.members.clear()
-    WORLD.applications.clear(); WORLD.bot_tokens.clear()
-    WORLD.emojis.clear(); WORLD.guild_emojis.clear()
+    WORLD.users.clear()
+    WORLD.guilds.clear()
+    WORLD.channels.clear()
+    WORLD.roles.clear()
+    WORLD.members.clear()
+    WORLD.applications.clear()
+    WORLD.bot_tokens.clear()
+    WORLD.emojis.clear()
+    WORLD.guild_emojis.clear()
     for uid, ud in snap.get("users", {}).items():
         WORLD.users[uid] = User(**ud)
     for gid, gd in snap.get("guilds", {}).items():

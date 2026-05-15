@@ -66,7 +66,8 @@ async def create_ban(guild_id: str, user_id: str, body: dict | None = None, bot:
     _require_guild(guild_id)
     body = body or {}
     reason = body.get("reason")
-    _delete_seconds = body.get("delete_message_seconds", 0)  # not retained in emulator
+    # body.get("delete_message_seconds") is accepted for compatibility but
+    # not retained — the emulator never bulk-deletes messages on ban.
     ban = _ban_dict(user_id, reason)
     WORLD.bans[(guild_id, user_id)] = ban
 

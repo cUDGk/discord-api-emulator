@@ -115,7 +115,8 @@ def etf_unpack(data: bytes) -> Any:
 
 
 def _etf_decode_term(buf: bytes, idx: int) -> tuple[Any, int]:
-    tag = buf[idx]; idx += 1
+    tag = buf[idx]
+    idx += 1
     if tag == _TAG_SMALL_INTEGER:
         return buf[idx], idx + 1
     if tag == _TAG_INTEGER:
@@ -125,23 +126,27 @@ def _etf_decode_term(buf: bytes, idx: int) -> tuple[Any, int]:
         (val,) = struct.unpack(">d", buf[idx:idx + 8])
         return val, idx + 8
     if tag == _TAG_SMALL_ATOM_UTF8:
-        ln = buf[idx]; idx += 1
+        ln = buf[idx]
+        idx += 1
         name = buf[idx:idx + ln].decode("utf-8")
         idx += ln
         return _atom_to_python(name), idx
     if tag == 118:  # ATOM_UTF8_EXT (defensive — produced by erlpack sometimes)
-        (ln,) = struct.unpack(">H", buf[idx:idx + 2]); idx += 2
+        (ln,) = struct.unpack(">H", buf[idx:idx + 2])
+        idx += 2
         name = buf[idx:idx + ln].decode("utf-8")
         idx += ln
         return _atom_to_python(name), idx
     if tag == _TAG_BINARY:
-        (ln,) = struct.unpack(">I", buf[idx:idx + 4]); idx += 4
+        (ln,) = struct.unpack(">I", buf[idx:idx + 4])
+        idx += 4
         val = buf[idx:idx + ln].decode("utf-8")
         return val, idx + ln
     if tag == _TAG_NIL:
         return [], idx
     if tag == _TAG_LIST:
-        (ln,) = struct.unpack(">I", buf[idx:idx + 4]); idx += 4
+        (ln,) = struct.unpack(">I", buf[idx:idx + 4])
+        idx += 4
         items = []
         for _ in range(ln):
             v, idx = _etf_decode_term(buf, idx)
@@ -151,7 +156,8 @@ def _etf_decode_term(buf: bytes, idx: int) -> tuple[Any, int]:
             idx += 1
         return items, idx
     if tag == 116:  # MAP_EXT
-        (ln,) = struct.unpack(">I", buf[idx:idx + 4]); idx += 4
+        (ln,) = struct.unpack(">I", buf[idx:idx + 4])
+        idx += 4
         out: dict[Any, Any] = {}
         for _ in range(ln):
             k, idx = _etf_decode_term(buf, idx)
@@ -159,7 +165,8 @@ def _etf_decode_term(buf: bytes, idx: int) -> tuple[Any, int]:
             out[k] = v
         return out, idx
     if tag == _TAG_SMALL_TUPLE:
-        arity = buf[idx]; idx += 1
+        arity = buf[idx]
+        idx += 1
         items = []
         for _ in range(arity):
             v, idx = _etf_decode_term(buf, idx)

@@ -15,7 +15,6 @@ import asyncio
 import json
 import logging
 import secrets
-from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
@@ -88,8 +87,6 @@ async def voice_ws(ws: WebSocket) -> None:
         "d": {"heartbeat_interval": 13750},
     }))
 
-    identified = False
-
     try:
         while True:
             raw = await ws.receive_text()
@@ -103,7 +100,6 @@ async def voice_ws(ws: WebSocket) -> None:
 
             if op == VOP_IDENTIFY:
                 # d: {server_id, user_id, session_id, token, video?}
-                identified = True
                 WORLD.voice_sessions[session_id] = {
                     "ssrc": ssrc,
                     "user_id": d.get("user_id"),

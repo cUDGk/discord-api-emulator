@@ -51,13 +51,13 @@ _DEFAULT_AVATAR_COLORS: tuple[tuple[int, int, int], ...] = (
 )
 
 
-def _hsl_to_rgb(h: float, s: float, l: float) -> tuple[int, int, int]:
-    # Standard HSL -> RGB, hue in [0,1].
+def _hsl_to_rgb(h: float, s: float, lt: float) -> tuple[int, int, int]:
+    # Standard HSL -> RGB, hue in [0,1]. `lt` is lightness.
     if s == 0:
-        v = int(round(l * 255))
+        v = int(round(lt * 255))
         return v, v, v
-    q = l * (1 + s) if l < 0.5 else l + s - l * s
-    p = 2 * l - q
+    q = lt * (1 + s) if lt < 0.5 else lt + s - lt * s
+    p = 2 * lt - q
 
     def f(t: float) -> float:
         t %= 1.0

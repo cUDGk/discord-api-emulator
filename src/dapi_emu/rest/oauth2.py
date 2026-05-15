@@ -10,7 +10,6 @@ from fastapi import APIRouter, Depends, Form, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from ..auth import require_bot
-from ..snowflake import generate as new_snowflake
 from ..state import WORLD, User
 
 router = APIRouter()
