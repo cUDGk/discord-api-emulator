@@ -29,6 +29,7 @@ Discord 公式 API (v10) の REST / Gateway / Voice をローカルでエミュ�
 
 | 項目 | 内容 |
 |---|---|
+| Interaction Workbench | Discord 風 UI から slash/button/modal を組み立てて bot に投げる → 応答を表示 → JSON テストケースに保存 → CLI/CI で再生 |
 | 対応 bot ライブラリ | `discord.py` 2.x / `discord.js` 14.x（実機接続検証済み） |
 | REST | 約 250 パス、`/api/v10` と `/api` 両プレフィックスでマウント |
 | Gateway 圧縮 | 無圧縮 / zlib-stream / zstd-stream |
@@ -94,6 +95,7 @@ python run.py
 | `ws://127.0.0.1:8080/gateway` | Gateway WS |
 | `http://127.0.0.1:8080/panel` | 管理パネル |
 | `http://127.0.0.1:8080/client` | Discord 風テストクライアント |
+| `http://127.0.0.1:8080/workbench` | Interaction Workbench（slash/button/modal の試験・記録・再生） |
 | `http://127.0.0.1:8080/docs` | Swagger UI |
 
 ### 2. Bot トークン発行（Developer Portal 不要）
@@ -157,8 +159,33 @@ DAPI_DB_PATH=./data/dev.db python run.py
 
 ```bash
 python -m pytest tests/ -q
-# 135 passed
+# 143 passed
 ```
+
+### 7. Interaction Workbench
+
+`http://127.0.0.1:8080/workbench` を開くと、登録済み slash command を選んで引数フォームから実行し、bot の応答を Discord 風吹き出しで確認できる。テストケースとして保存しておくと、CI で回帰テストできる:
+
+```bash
+# 1. 保存済みケースを一覧
+python -m dapi_emu.workbench list
+
+# 2. 1件だけ実行
+python -m dapi_emu.workbench run testcases/ping-basic.json
+
+# 3. 全件再生
+python -m dapi_emu.workbench run --all
+```
+
+REST 経由でも操作可能:
+
+| メソッド | パス | 用途 |
+|---|---|---|
+| POST | `/workbench/invoke` | interaction を組み立てて投げる |
+| GET | `/workbench/testcases` | 保存済みケース一覧 |
+| POST | `/workbench/testcases` | 現在の invoke 内容を保存 |
+| POST | `/workbench/testcases/{name}/run` | 1件再生 |
+| POST | `/workbench/run-all` | 全件再生してサマリーを返す |
 
 ## 実装スコープ
 

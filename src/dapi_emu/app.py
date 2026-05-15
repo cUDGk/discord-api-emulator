@@ -14,6 +14,7 @@ from . import config, persistence
 from .gateway.server import router as gateway_router
 from .gateway.voice import router as voice_gateway_router
 from .panel.routes import router as panel_router
+from .workbench.routes import router as workbench_router
 from .ratelimit import RateLimitHeadersMiddleware
 from .rest.applications import router as applications_router
 from .rest.channels import router as channels_router
@@ -57,6 +58,8 @@ def create_app() -> FastAPI:
 
     # Panel + admin (top-level)
     app.include_router(panel_router)
+    # Workbench: interaction tester / recorder / replayer
+    app.include_router(workbench_router)
 
     # Discord REST surface. Mount at both /api/v10/... and /api/... to be tolerant.
     for prefix in (f"/api/v{config.API_VERSION}", "/api"):

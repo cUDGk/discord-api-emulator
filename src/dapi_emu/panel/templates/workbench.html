@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>dapi-emu Workbench</title>
+<style>
+  :root {
+    --bg: #1e1f22;
+    --bg-mid: #2b2d31;
+    --bg-card: #313338;
+    --bg-input: #1e1f22;
+    --border: #3e4147;
+    --text: #dbdee1;
+    --muted: #949ba4;
+    --accent: #5865f2;
+    --accent-hover: #4752c4;
+    --success: #23a55a;
+    --danger: #f23f43;
+    --warning: #f0b232;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+  }
+  .topbar {
+    background: var(--bg-mid);
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px;
+  }
+  .brand { font-weight: 700; font-size: 16px; }
+  .topbar a { color: var(--muted); text-decoration: none; margin-left: 12px; }
+  .topbar a:hover { color: var(--text); }
+
+  .layout { display: grid; grid-template-columns: 320px 1fr 320px; gap: 1px;
+            background: var(--border); min-height: calc(100vh - 50px); }
+  .col { background: var(--bg); padding: 16px; overflow-y: auto;
+         max-height: calc(100vh - 50px); }
+  .col h2 { font-size: 12px; text-transform: uppercase; color: var(--muted);
+            margin: 0 0 8px 0; letter-spacing: 0.5px; }
+  .col h2:not(:first-child) { margin-top: 24px; }
+
+  label { display: block; font-size: 12px; color: var(--muted);
+          margin-top: 8px; margin-bottom: 4px; }
+  input, select, textarea {
+    width: 100%; background: var(--bg-input); color: var(--text);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 6px 8px; font-size: 13px;
+    font-family: inherit;
+  }
+  textarea { font-family: Consolas, "Cascadia Code", Menlo, monospace;
+             font-size: 12px; }
+  input:focus, select:focus, textarea:focus { outline: none;
+                                              border-color: var(--accent); }
+  button {
+    background: var(--accent); color: white; border: 0;
+    padding: 7px 14px; border-radius: 4px; cursor: pointer;
+    font-size: 13px; font-weight: 500;
+  }
+  button:hover { background: var(--accent-hover); }
+  button.sec { background: var(--bg-card); border: 1px solid var(--border); }
+  button.sec:hover { background: var(--border); }
+  button.danger { background: var(--danger); }
+  button.success { background: var(--success); }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 10px;
+          background: var(--bg-card); font-size: 10px; margin-left: 4px;
+          color: var(--muted); }
+
+  /* Command list */
+  .cmd-item {
+    background: var(--bg-mid); padding: 8px 10px; border-radius: 4px;
+    margin-bottom: 4px; cursor: pointer; border: 1px solid transparent;
+  }
+  .cmd-item:hover { background: var(--bg-card); }
+  .cmd-item.active { border-color: var(--accent); background: var(--bg-card); }
+  .cmd-item .name { font-weight: 600; }
+  .cmd-item .desc { color: var(--muted); font-size: 12px; margin-top: 2px; }
+
+  /* Options form */
+  .opt-row { display: flex; gap: 8px; align-items: end; margin-bottom: 4px; }
+  .opt-row > input { flex: 1; }
+  .opt-row > select { flex: 0 0 100px; }
+
+  /* Response messages — Discord-like */
+  .msg {
+    display: flex; gap: 12px; padding: 8px 12px;
+    border-radius: 6px; margin-bottom: 6px;
+    background: var(--bg-card);
+  }
+  .msg.ephemeral { border-left: 3px solid var(--muted); }
+  .msg .av {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--accent); flex: 0 0 36px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 16px;
+  }
+  .msg .body { flex: 1; min-width: 0; }
+  .msg .head { display: flex; align-items: baseline; gap: 8px; }
+  .msg .author { font-weight: 600; }
+  .msg .author.bot::after {
+    content: "BOT"; font-size: 10px; background: var(--accent);
+    color: white; padding: 1px 4px; border-radius: 3px;
+    margin-left: 6px;
+  }
+  .msg .ts { color: var(--muted); font-size: 11px; }
+  .msg .content { margin-top: 2px; white-space: pre-wrap; word-break: break-word; }
+  .msg .meta { color: var(--muted); font-size: 11px; margin-top: 4px; }
+  .msg .embed {
+    border-left: 3px solid var(--accent);
+    background: var(--bg-mid); padding: 8px 12px; margin-top: 4px;
+    border-radius: 4px;
+  }
+
+  /* Testcase list */
+  .tc-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 8px; background: var(--bg-mid); border-radius: 4px;
+    margin-bottom: 4px;
+  }
+  .tc-item .name { font-weight: 500; }
+  .tc-item .tag { font-size: 11px; color: var(--muted); }
+  .tc-actions { display: flex; gap: 4px; }
+  .tc-actions button { padding: 3px 8px; font-size: 11px; }
+
+  .verdict { padding: 8px 12px; border-radius: 4px; margin-bottom: 6px;
+             font-size: 13px; }
+  .verdict.pass { background: rgba(35, 165, 90, 0.15);
+                  border-left: 3px solid var(--success); }
+  .verdict.fail { background: rgba(242, 63, 67, 0.15);
+                  border-left: 3px solid var(--danger); }
+  .verdict-summary { margin-top: 8px; padding: 8px 12px;
+                     background: var(--bg-card); border-radius: 4px;
+                     font-weight: 600; }
+
+  pre { background: var(--bg-input); padding: 8px; border-radius: 4px;
+        overflow: auto; max-height: 240px; font-size: 11px;
+        line-height: 1.4; border: 1px solid var(--border); margin: 0; }
+
+  .row { display: flex; gap: 8px; }
+  .row > * { flex: 1; }
+  .muted { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="brand">⚙ Workbench</span>
+  <span class="muted">Slash / Button / Modal を組み立てて bot に投げて応答を確認・保存・再生</span>
+  <span style="flex:1"></span>
+  <a href="/client">→ Client</a>
+  <a href="/panel">→ Panel</a>
+  <a href="/docs">→ API Docs</a>
+</div>
+
+<div class="layout">
+
+  <!-- LEFT: command picker -->
+  <aside class="col">
+    <h2>Application</h2>
+    <select id="app-select"></select>
+
+    <h2>As (user)</h2>
+    <select id="user-select"></select>
+
+    <h2>Guild / Channel</h2>
+    <select id="guild-select"></select>
+    <select id="channel-select" style="margin-top:4px"></select>
+
+    <h2>Slash Commands</h2>
+    <div id="commands-list"></div>
+
+    <h2>Quick — Component (button)</h2>
+    <label>custom_id</label>
+    <input id="comp-id" placeholder="my-button">
+    <label>component_type</label>
+    <select id="comp-type">
+      <option value="2">2 — Button</option>
+      <option value="3">3 — String Select</option>
+      <option value="5">5 — User Select</option>
+      <option value="6">6 — Role Select</option>
+      <option value="7">7 — Mentionable Select</option>
+      <option value="8">8 — Channel Select</option>
+    </select>
+    <label>values (JSON, for selects)</label>
+    <input id="comp-values" placeholder='["choice-1"]'>
+    <div style="margin-top:8px"><button onclick="invokeComponent()">▶ click button / pick select</button></div>
+
+    <h2>Quick — Modal submit</h2>
+    <label>custom_id</label>
+    <input id="modal-id" placeholder="my-modal">
+    <label>components (JSON)</label>
+    <textarea id="modal-components" rows="3" placeholder='[{"type":1,"components":[{"type":4,"custom_id":"q1","value":"hi"}]}]'></textarea>
+    <div style="margin-top:8px"><button onclick="invokeModal()">▶ submit modal</button></div>
+  </aside>
+
+  <!-- CENTER: invocation form + response -->
+  <section class="col">
+    <h2>Selected command</h2>
+    <div id="cmd-form">
+      <div class="muted">左から slash command を選んでください</div>
+    </div>
+
+    <h2 style="margin-top:24px">Response</h2>
+    <div id="response-area">
+      <div class="muted">まだ実行されていません</div>
+    </div>
+
+    <h2 style="margin-top:24px">Raw payload</h2>
+    <pre id="raw-payload" class="muted">—</pre>
+  </section>
+
+  <!-- RIGHT: testcases -->
+  <aside class="col">
+    <h2>Save current as testcase</h2>
+    <label>name</label>
+    <input id="tc-name" placeholder="ping returns pong">
+    <label>description</label>
+    <input id="tc-desc" placeholder="(optional)">
+    <label>expect: content contains</label>
+    <input id="tc-expect-contains" placeholder='"pong"'>
+    <label>expect: response_type</label>
+    <select id="tc-expect-type">
+      <option value="">(any)</option>
+      <option value="4">4 — message</option>
+      <option value="5">5 — deferred</option>
+    </select>
+    <div style="margin-top:8px"><button onclick="saveTestcase()">💾 save</button></div>
+
+    <h2 style="margin-top:24px">Saved testcases</h2>
+    <div id="testcases-list"></div>
+    <div style="margin-top:8px">
+      <button class="success" onclick="runAll()">▶ run all</button>
+      <button class="sec" onclick="refresh()">⟳ refresh</button>
+    </div>
+
+    <h2 style="margin-top:24px">Last run report</h2>
+    <div id="report-area"><div class="muted">—</div></div>
+  </aside>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = {
+  inventory: null,
+  selectedCmd: null,
+  lastInvocation: null,  // {kind, invocation} for save
+};
+
+async function api(method, path, body) {
+  const opts = {method, headers: {"content-type": "application/json"}};
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  if (r.status === 204) return null;
+  const text = await r.text();
+  try { return JSON.parse(text); } catch { return text; }
+}
+
+async function refresh() {
+  state.inventory = await api("GET", "/workbench/inventory");
+  populateSelects();
+  renderCommands();
+  refreshTestcases();
+}
+
+function populateSelects() {
+  const inv = state.inventory;
+  $("app-select").innerHTML = inv.applications.map(a =>
+    `<option value="${a.id}">${a.name} (${a.id.slice(-6)})</option>`).join("")
+    || "<option value=''>(no application)</option>";
+  $("user-select").innerHTML = inv.users.map(u =>
+    `<option value="${u.id}">${u.username}${u.bot ? " [BOT]" : ""}</option>`).join("")
+    || "<option value=''>(no users)</option>";
+  $("guild-select").innerHTML = '<option value="">(no guild — DM)</option>' +
+    inv.guilds.map(g => `<option value="${g.id}">${g.name}</option>`).join("");
+  syncChannels();
+}
+
+$("guild-select").addEventListener("change", syncChannels);
+
+function syncChannels() {
+  const gid = $("guild-select").value;
+  const inv = state.inventory;
+  if (!gid) { $("channel-select").innerHTML = "<option value=''>(select a guild first)</option>"; return; }
+  const g = inv.guilds.find(x => x.id === gid);
+  if (!g) return;
+  $("channel-select").innerHTML = g.channels.map(c =>
+    `<option value="${c.id}">${c.type === 0 ? "#" : ""}${c.name}</option>`).join("");
+}
+
+function renderCommands() {
+  const appId = $("app-select").value;
+  const cmds = (state.inventory.commands || []).filter(c =>
+    !appId || c.application_id === appId);
+  $("commands-list").innerHTML = cmds.length === 0
+    ? `<div class="muted">登録された slash command がありません。
+       bot から PUT /applications/{id}/commands で登録してください。</div>`
+    : cmds.map(c => `
+      <div class="cmd-item" data-id="${c.id}" onclick="selectCommand('${c.id}')">
+        <div class="name">/${c.name}</div>
+        <div class="desc">${escapeHtml(c.description || "")}
+          ${(c.options || []).length ? `<span class="pill">${c.options.length} opt</span>` : ""}</div>
+      </div>`).join("");
+}
+
+$("app-select").addEventListener("change", renderCommands);
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>'"]/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"})[c]);
+}
+
+function selectCommand(id) {
+  state.selectedCmd = (state.inventory.commands || []).find(c => c.id === id);
+  document.querySelectorAll(".cmd-item").forEach(el =>
+    el.classList.toggle("active", el.dataset.id === id));
+  renderCmdForm();
+}
+
+function renderCmdForm() {
+  const c = state.selectedCmd;
+  if (!c) { $("cmd-form").innerHTML = '<div class="muted">—</div>'; return; }
+  const opts = c.options || [];
+  const formRows = opts.map((o, i) => `
+    <div class="opt-row">
+      <div style="flex:0 0 90px"><label style="margin:0;color:var(--text)">${escapeHtml(o.name)}</label>
+        <div class="muted">type ${o.type}${o.required ? " *" : ""}</div></div>
+      <input data-name="${escapeHtml(o.name)}" data-type="${o.type}"
+        placeholder="${escapeHtml(o.description || "")}"
+        ${o.required ? "required" : ""}>
+    </div>`).join("") || '<div class="muted">(no options)</div>';
+  $("cmd-form").innerHTML = `
+    <div><b>/${c.name}</b> <span class="muted">${escapeHtml(c.description || "")}</span></div>
+    <div style="margin-top:8px">${formRows}</div>
+    <div style="margin-top:12px"><button onclick="invokeCommand()">▶ invoke</button></div>`;
+}
+
+function collectOptions() {
+  const rows = document.querySelectorAll("#cmd-form .opt-row input");
+  const opts = [];
+  rows.forEach(r => {
+    const v = r.value;
+    if (v === "") return;
+    const t = parseInt(r.dataset.type);
+    let value = v;
+    if (t === 4 || t === 10) value = Number(v);
+    else if (t === 5) value = v === "true";
+    opts.push({name: r.dataset.name, type: t, value: value});
+  });
+  return opts;
+}
+
+async function invokeCommand() {
+  if (!state.selectedCmd) return;
+  const body = {
+    kind: "application_command",
+    application_id: state.selectedCmd.application_id,
+    user_id: $("user-select").value,
+    channel_id: $("channel-select").value,
+    guild_id: $("guild-select").value || null,
+    invocation: {
+      command_name: state.selectedCmd.name,
+      command_type: state.selectedCmd.type || 1,
+      options: collectOptions(),
+    },
+  };
+  state.lastInvocation = body;
+  const r = await api("POST", "/workbench/invoke", body);
+  renderResponse(r);
+}
+
+async function invokeComponent() {
+  let values;
+  try { values = $("comp-values").value ? JSON.parse($("comp-values").value) : undefined; }
+  catch { alert("values: invalid JSON"); return; }
+  const body = {
+    kind: "component",
+    application_id: $("app-select").value,
+    user_id: $("user-select").value,
+    channel_id: $("channel-select").value,
+    guild_id: $("guild-select").value || null,
+    invocation: {
+      custom_id: $("comp-id").value,
+      component_type: parseInt($("comp-type").value),
+      ...(values ? {values} : {}),
+    },
+  };
+  state.lastInvocation = body;
+  const r = await api("POST", "/workbench/invoke", body);
+  renderResponse(r);
+}
+
+async function invokeModal() {
+  let components;
+  try { components = JSON.parse($("modal-components").value || "[]"); }
+  catch { alert("components: invalid JSON"); return; }
+  const body = {
+    kind: "modal",
+    application_id: $("app-select").value,
+    user_id: $("user-select").value,
+    channel_id: $("channel-select").value,
+    guild_id: $("guild-select").value || null,
+    invocation: {
+      custom_id: $("modal-id").value,
+      components,
+    },
+  };
+  state.lastInvocation = body;
+  const r = await api("POST", "/workbench/invoke", body);
+  renderResponse(r);
+}
+
+function renderResponse(r) {
+  if (!r) { $("response-area").innerHTML = '<div class="muted">no response</div>'; return; }
+  $("raw-payload").textContent = JSON.stringify(r.payload, null, 2);
+  const msgs = r.all_new_messages || [];
+  if (msgs.length === 0) {
+    $("response-area").innerHTML =
+      `<div class="muted">bot からの応答がありませんでした（${r.elapsed_ms}ms 待機）</div>`;
+    return;
+  }
+  $("response-area").innerHTML = msgs.map(m => renderMsg(m, r.original_message)).join("");
+}
+
+function renderMsg(m, original) {
+  const author = m.author || {};
+  const initial = (author.username || "?").charAt(0).toUpperCase();
+  const ephemeral = (m.flags || 0) & 64;
+  const tag = m.id === (original && original.id) ? "@original" :
+              ephemeral ? "ephemeral" : "followup";
+  return `
+    <div class="msg ${ephemeral ? "ephemeral" : ""}">
+      <div class="av">${initial}</div>
+      <div class="body">
+        <div class="head">
+          <span class="author ${author.bot ? "bot" : ""}">${escapeHtml(author.username || "?")}</span>
+          <span class="ts">type ${m.type} · ${tag}</span>
+        </div>
+        <div class="content">${escapeHtml(m.content || "")}</div>
+        ${(m.embeds || []).map(e => `<div class="embed">
+          <b>${escapeHtml(e.title || "")}</b>
+          <div>${escapeHtml(e.description || "")}</div></div>`).join("")}
+        <div class="meta">flags=${m.flags || 0} id=${m.id ? m.id.slice(-8) : "—"}</div>
+      </div>
+    </div>`;
+}
+
+async function saveTestcase() {
+  if (!state.lastInvocation) { alert("先に invoke してください"); return; }
+  const name = $("tc-name").value.trim();
+  if (!name) { alert("name required"); return; }
+  const expect = {};
+  if ($("tc-expect-contains").value) expect.content_contains = $("tc-expect-contains").value;
+  if ($("tc-expect-type").value) expect.response_type = parseInt($("tc-expect-type").value);
+  const body = {
+    ...state.lastInvocation,
+    name,
+    description: $("tc-desc").value,
+    expect,
+  };
+  const r = await api("POST", "/workbench/testcases", body);
+  if (r) { $("tc-name").value = ""; $("tc-desc").value = ""; refreshTestcases(); }
+}
+
+async function refreshTestcases() {
+  const list = await api("GET", "/workbench/testcases");
+  $("testcases-list").innerHTML = list.length === 0
+    ? '<div class="muted">(no testcases yet)</div>'
+    : list.map(tc => `
+      <div class="tc-item">
+        <div>
+          <div class="name">${escapeHtml(tc.name)}</div>
+          <div class="tag">${tc.kind || "?"}${tc.command ? ` · /${tc.command}` : ""}</div>
+        </div>
+        <div class="tc-actions">
+          <button onclick="runOne('${escapeHtml(tc.name)}')">run</button>
+          <button class="danger" onclick="delTc('${escapeHtml(tc.name)}')">×</button>
+        </div>
+      </div>`).join("");
+}
+
+async function runOne(name) {
+  const r = await api("POST", `/workbench/testcases/${encodeURIComponent(name)}/run`);
+  renderReport([r]);
+}
+
+async function runAll() {
+  const r = await api("POST", "/workbench/run-all");
+  renderReport(r.reports, {total: r.total, passed: r.passed, failed: r.failed});
+}
+
+function renderReport(reports, summary) {
+  const items = reports.map(rp => `
+    <div class="verdict ${rp.passed ? "pass" : "fail"}">
+      <b>${rp.passed ? "✓ PASS" : "✗ FAIL"}</b>
+      ${escapeHtml(rp.name || "")}
+      <span class="muted"> · ${rp.elapsed_ms}ms</span>
+      ${rp.reasons && rp.reasons.length
+        ? `<ul style="margin:4px 0 0 16px">${rp.reasons.map(r => `<li>${escapeHtml(r)}</li>`).join("")}</ul>`
+        : ""}
+    </div>`).join("");
+  const sum = summary
+    ? `<div class="verdict-summary">${summary.passed} passed / ${summary.failed} failed (total ${summary.total})</div>`
+    : "";
+  $("report-area").innerHTML = items + sum;
+}
+
+async function delTc(name) {
+  if (!confirm(`delete "${name}"?`)) return;
+  await api("DELETE", `/workbench/testcases/${encodeURIComponent(name)}`);
+  refreshTestcases();
+}
+
+refresh();
+setInterval(refresh, 5000);
+</script>
+
+</body>
+</html>
