@@ -6,7 +6,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat&logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?style=flat&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Tests](https://img.shields.io/badge/tests-135%2F135-brightgreen?style=flat)](tests/)
+[![Tests](https://img.shields.io/badge/tests-143%2F143-brightgreen?style=flat)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
 **`discord.py` も `discord.js` も無改造で繋がる、ローカル完結の bot 検証環境。**
@@ -43,7 +43,7 @@ Discord 公式 API (v10) の REST / Gateway / Voice をローカルでエミュ�
 | Audit Log | ロール / チャンネル / メンバー / Webhook 等の操作を 26 アクションで自動記録 |
 | Rate Limit | `X-RateLimit-*` ヘッダ常時付与、`DAPI_ENFORCE_RATELIMIT=1` で実強制も可能 |
 | システムメッセージ | メンバー参加 / ピン留め / スレッド作成 / ブースト / Stage 開始 等を自動投稿 |
-| テスト | 135 件、すべて pass |
+| テスト | 143 件、すべて pass |
 
 ## アーキテクチャ
 
